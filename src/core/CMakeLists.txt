@@ -28,6 +28,12 @@ set_target_properties(${PROJECT_NAME}
 		RUNTIME_OUTPUT_DIRECTORY ${OUTPUT_DIR}
 )
 
+## Include third-party libraries
+target_link_libraries(${PROJECT_NAME}
+
+	sgl
+)
+
 ## Include directories
 target_include_directories(${PROJECT_NAME}
 
