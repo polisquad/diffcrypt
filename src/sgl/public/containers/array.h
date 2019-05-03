@@ -55,6 +55,13 @@ public:
 		if (size) buffer = reinterpret_cast<T*>(allocator->malloc(size * sizeof(T)));
 	}
 
+	/// Array constructor
+	FORCE_INLINE Array(const T * data, uint32 _count)
+		: Array(_count)
+	{
+		PlatformMemory::memcpy(buffer, data, (count = _count));
+	}
+
 	/// Copy constructor
 	FORCE_INLINE Array(const Array<T, AllocT> & other) : Array(other.size)
 	{
