@@ -55,6 +55,7 @@ public:
 		size = other.size;
 
 		// Copy data
+		if (data) gMalloc->free(data);
 		if (data = gMalloc->malloc(size, sizeof(uint64)))
 			PlatformMemory::memcpy(data, other.data, size);
 	}
@@ -117,7 +118,7 @@ public:
 	 * @param [in] dest destination bit stream
 	 * @param [in] perm permutation table
 	 */
-	FORCE_INLINE void permute(BitStream & dest, const uint32 * table)
+	FORCE_INLINE void permute(BitStream & dest, const uint32 * perm)
 	{
 		uint64 * src = as<uint64>();
 		uint64 * des = dest.as<uint64>();
@@ -125,17 +126,17 @@ public:
 		int32 j = dest.count - 1;
 		for (uint32 i = 0; i < dest.count; des += (++i & 0x3f) == 0, --j)
 		{
-			uint64	r = table[j],
-					s = r >> 6,
-					t = r & 0x3f,
-					u = 1 << r;
+			const uint64	r = perm[i],
+							s = r >> 6,
+							t = r & 0x3f,
+							x = (src[s] >> t) & 0x1;
 			
 			// Set bit and shift
-			(*des <<= 1) |= (src[s] & u) >> t;
+			(*des <<= 1) |= x;
 		}
 	}
 
-	/**
+	/**	
 	 * Shuffle using subsitution maps
 	 * 
 	 * @param [in] dest destination bit stream
@@ -148,7 +149,7 @@ public:
 	{
 		uint64 * src = as<uint64>(), * des = dest.as<uint64>();
 		uint32 i = 0, j = 0, s = 0;
-		uint32 u = (1 << inSize) - 1, v = (1 << outSize) - 1;
+		uint32 u = (1U << inSize) - 1, v = (1U << outSize) - 1;
 
 		while (j < dest.count)
 		{
@@ -164,7 +165,7 @@ public:
 			des += ((j += outSize) & 0x3f) == 0;
 
 			// Next map
-			s = ++s > n ? 0 : s;
+			s = ++s == n ? 0 : s;
 		}
 	}
 	template<uint32 inSize, uint32 outSize>
@@ -178,43 +179,111 @@ public:
 #include <omp.h>
 double start;
 
+const uint32 xpns[] = {
+	31, 0, 1, 2, 3, 4,
+	3, 4, 5, 6, 7, 8,
+	7, 8, 9, 10, 11, 12,
+	11, 12, 13, 14, 15, 16,
+	15, 16, 17, 18, 19, 20,
+	19, 20, 21, 22, 23, 24,
+	23, 24, 25, 26, 27, 28,
+	27, 28, 29, 30, 31, 0
+};
+const uint32 perm[] = {
+	15, 6, 19, 20,
+	28, 11, 27, 16,
+	0, 14, 22, 25,
+	4, 17, 30, 9,
+	1, 7, 23, 13,
+	31, 26, 2, 8,
+	18, 12, 29, 5,
+	21, 10, 3, 24
+};
+const uint32 subs[] = {
+	14, 0, 4, 15, 13, 7, 1, 4, 2, 14, 15, 2, 11, 13, 8, 1, 3, 10, 10, 6, 6, 12, 12, 11, 5, 9, 9, 5, 0, 3, 7, 8,
+	4, 15, 1, 12, 14, 8, 8, 2, 13, 4, 6, 9, 2, 1, 11, 7, 15, 5, 12, 11, 9, 3, 7, 14, 3, 10, 10, 0, 5, 6, 0, 13
+};
+
 int main()
 {
 	Memory::createGMalloc();
-
-	srand(clock());
 	
-	char * username = "00eppy";
-	uint32 key = rand();
-	BitStream x(username, 32);
-	BitStream y(32);
-	BitStream k(&key, 32);
+	char block[] = "sneppy13";
+	char output[] = "sneppy13";
+	uint64 key = 0x00012345;
+	BitStream l(block, 32), r(block + 4, 32);
+	BitStream u(block, 32), v(block, 32);
+	BitStream k(&key, 32), e(&key, 48);
 
-	/* start = omp_get_wtime();
-	for (uint32 i = 0; i < 1 << 20; ++i)
-		x ^= x;
-	printf("%fs\n", omp_get_wtime() - start);
+	uint32 p2[32];
+	for (uint32 i = 0; i < 32; ++i)
+		p2[i] = i;
 
-	start = omp_get_wtime();
-	for (uint32 i = 0; i < 1 << 20; ++i)
-		a ^= a;
-	printf("%fs\n", omp_get_wtime() - start);
+	printf("%08x:%08x\n", l.as<uint32>()[0], r.as<uint32>()[0]);
 
-	printf("%hu\n", a); */
-
-	start = omp_get_wtime();
-	for (uint32 i = 0; i < 1 << 20; ++i)
+	for (uint32 i = 0; i < 15; ++i)
 	{
-		const uint32 subs[] = {5, 1, 6, 10, 13, 7, 14, 2, 3, 9, 15, 8, 12, 4, 0, 11};
-		const uint32 perm[] = {3, 28, 18, 1, 24, 12, 20, 16, 0, 4, 21, 6, 17, 13, 7, 26, 2, 29, 25, 15, 31, 30, 23, 8, 11, 22, 10, 5, 27, 19, 14, 9};
-		x.permute(y, perm);
-		y ^= k;
-		y.substitute<4, 4>(x, subs);
-	}
-	printf("%fs\n", omp_get_wtime() - start);
+		// E-box
+		r.permute(e, xpns);
 
-	printf("%08x\n", y.as<uint32>()[0]);
-	printf("%08x\n", x.as<uint32>()[0]);
+		// Xor
+		e ^= k;
+
+		// S-box
+		e.substitute<6, 4>(v, subs);
+
+		// P-box
+		v.permute(u, perm);
+
+		// Xor
+		u ^= l;
+
+		// Swap
+		l = r;
+		r = u;
+	}
+
+	{
+		l.permute(e, xpns);
+		e ^= k;
+		e.substitute<6, 4>(v, subs);
+		v.permute(u, perm);
+		r = u ^ r;
+	}
+
+	printf("%08x:%08x\n", l.as<uint32>()[0], r.as<uint32>()[0]);
+
+	for (uint32 i = 0; i < 15; ++i)
+	{
+		// E-box
+		r.permute(e, xpns);
+
+		// Xor
+		e ^= k;
+
+		// S-box
+		e.substitute<6, 4>(v, subs);
+
+		// P-box
+		v.permute(u, perm);
+
+		// Xor
+		u ^= l;
+
+		// Swap
+		l = r;
+		r = u;
+	}
+
+	{
+		l.permute(e, xpns);
+		e ^= k;
+		e.substitute<6, 4>(v, subs);
+		v.permute(u, perm);
+		r = u ^ r;
+	}
+
+	printf("%08x:%08x\n", l.as<uint32>()[0], r.as<uint32>()[0]);
 
 	return 0;
 }

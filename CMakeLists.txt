@@ -15,7 +15,7 @@ set(CMAKE_CXX_FLAGS_RELEASE			"-DSGL_BUILD_RELEASE -DBUILD_RELEASE=1 -Ofast")
 ## CXX preferences
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED false)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAG} -mavx2 -pthread -fopenmp") # Define compiler flags
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -pthread -fopenmp") # Define compiler flags
 
 # Code setup ------------------------------------
 ## Source code
