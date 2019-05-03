@@ -136,22 +136,24 @@ public:
 	}
 
 	/**
-	 * Shuffle using a subsitution map
+	 * Shuffle using subsitution maps
 	 * 
 	 * @param [in] dest destination bit stream
-	 * @param [in] sub subsitution map
+	 * @param [in] subs subsitution map(s)
+	 * @param [in] n number of sub maps to cycle
+	 * @{
 	 */
 	template<uint32 inSize, uint32 outSize>
-	FORCE_INLINE void substitute(BitStream & dest, const uint32 * map)
+	FORCE_INLINE void substitute(BitStream & dest, const uint32 ** subs, uint32 n)
 	{
 		uint64 * src = as<uint64>(), * des = dest.as<uint64>();
-		uint32 i = 0, j = 0;
+		uint32 i = 0, j = 0, s = 0;
 		uint32 u = (1 << inSize) - 1, v = (1 << outSize) - 1;
 
 		while (j < dest.count)
 		{
 			uint64 x = (*src & u) >> i;
-			uint64 t = static_cast<uint64>(map[x]) << j;
+			uint64 t = static_cast<uint64>(subs[s][x]) << j;
 			(*des &= ~v) |= t;
 
 			// Shift bitmask
@@ -160,8 +162,17 @@ public:
 			// Increment pointers if necessary
 			src += ((i += inSize) & 0x3f) == 0;
 			des += ((j += outSize) & 0x3f) == 0;
+
+			// Next map
+			s = ++s > n ? 0 : s;
 		}
 	}
+	template<uint32 inSize, uint32 outSize>
+	FORCE_INLINE void substitute(BitStream & out, const uint32 * subs)
+	{
+		substitute<inSize, outSize>(out, &subs, 1);
+	}
+	/// @}
 };
 
 #include <omp.h>
@@ -192,14 +203,13 @@ int main()
 	printf("%hu\n", a); */
 
 	start = omp_get_wtime();
-	for (uint32 i = 0; i < 1 << 8; ++i)
+	for (uint32 i = 0; i < 1 << 20; ++i)
 	{
 		const uint32 subs[] = {5, 1, 6, 10, 13, 7, 14, 2, 3, 9, 15, 8, 12, 4, 0, 11};
 		const uint32 perm[] = {3, 28, 18, 1, 24, 12, 20, 16, 0, 4, 21, 6, 17, 13, 7, 26, 2, 29, 25, 15, 31, 30, 23, 8, 11, 22, 10, 5, 27, 19, 14, 9};
 		x.permute(y, perm);
 		y ^= k;
 		y.substitute<4, 4>(x, subs);
-		printf("%08x\n", x.as<uint32>()[0]);
 	}
 	printf("%fs\n", omp_get_wtime() - start);
 
