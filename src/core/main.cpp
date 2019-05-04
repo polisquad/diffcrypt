@@ -168,8 +168,9 @@ public:
 		*as<uint64>() |= u;
 
 		// Recursive for shifts bigger than 64
-		if ((n -= shift) > 0) rotateLeft(n);
-
+		if ((n -= shift) > 0)
+			return rotateLeft(n);
+		
 		return *this;
 	}
 
@@ -416,25 +417,52 @@ int main()
 	BitStream input(ptx, 64), output(64);
 	BitStream l, r;
 	BitStream u(32), v(32);
-	BitStream k(key, 48), e(48);
+	BitStream k0(key, 48), e(48);
+	BitStream k[16];
 
-	// Initial permutation
-	input.permute(output, ip);
-	printf("%llx\n", *output.as<uint64>());
+	//////////////////////////////////////////////////
+	// Key schedule
+	//////////////////////////////////////////////////
+	
+	BitStream c(28), d(28);
+	const uint32 shifts[] = {1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1};
+	const uint32 kperm[] = {13, 16, 10, 23, 0, 4, 2, 27, 14, 5, 20, 9, 22, 18, 11, 3, 25, 7, 15, 6, 26, 19, 12, 1, 40, 51, 30, 36, 46, 54, 29, 39, 50, 44, 32, 47, 43, 48, 38, 55, 33, 52, 45, 41, 49, 35, 28, 31}; 
 
-	// Split in left and right blocks
-	l = output.slice(32), r = output.slice(32, 4);
+	k0.permute(c, (const uint32[]){56, 48, 40, 32, 24, 16, 8, 0, 57, 49, 41, 33, 25, 17, 9, 1, 58, 50, 42, 34, 26, 18, 10, 2, 59, 51, 43, 35});
+	k0.permute(d, (const uint32[]){62, 54, 46, 38, 30, 22, 14, 6, 61, 55, 45, 37, 29, 21, 13, 5, 60, 52, 44, 36, 28, 20, 12, 4, 27, 19, 11, 3});
 
-	for (uint32 i = 0; i < 15; ++i)
+	for (uint32 i = 0; i < 16; ++i)
 	{
-		// DES round
-		(r.permute(e, xpn) ^= k).substitute<6, 4>(u, _subs, 8).permute(v, perm) ^= l;
-		l = r, r = v;
+		new (k + i) BitStream(48);
+
+		c.rotateLeft(shifts[i]);
+		d.rotateLeft(shifts[i]);
+
+		c.merge(d).permute(k[i], kperm);
 	}
 
-	// Last round
-	l ^= (r.permute(e, xpn) ^= k).substitute<6, 4>(u, _subs, 8).permute(v, perm);
-	output = l.merge(r);
+	for (uint32 i = 0; i < 100000; ++i)
+	{
+		// Initial permutation
+		input.permute(output, ip);
+		//printf("0x%llx\n", *output.as<uint64>());
+
+		// Split in left and right blocks
+		l = output.slice(32), r = output.slice(32, 4);
+
+		for (uint32 i = 0; i < 15; ++i)
+		{
+			// DES round
+			(r.permute(e, xpn) ^= k[i]).substitute<6, 4>(u, _subs, 8).permute(v, perm) ^= l;
+			l = r, r = v;
+		}
+
+		// Last round
+		l ^= (r.permute(e, xpn) ^= k[15]).substitute<6, 4>(u, _subs, 8).permute(v, perm);
+		output = l.merge(r);
+
+		//printf("0x%llx\n", output.as<uint64>()[0]);
+	}
 
 	return 0;
 }
