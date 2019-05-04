@@ -42,9 +42,11 @@ public:
 	
 	/// Move constructor
 	FORCE_INLINE BitStream(BitStream && other)
-		: data(other.data)
-		, count(other.count)
+		: BitStream(other.count)
 	{
+		if (data) gMalloc->free(data);
+		data = other.data;
+		
 		other.data = nullptr;
 	}
 
@@ -63,6 +65,9 @@ public:
 	/// Move assignment
 	FORCE_INLINE BitStream & operator=(BitStream && other)
 	{
+		// Dealloc data
+		if (data) gMalloc->free(data);
+
 		count = other.count;
 		size = other.size;
 		data = other.data;
@@ -76,6 +81,20 @@ public:
 		if (data) gMalloc->free(data);
 	}
 
+protected:
+	/// Resize buffer if necessary
+	FORCE_INLINE bool resizeIfNecessary(uint32 _size)
+	{
+		if (_size < size)
+		{
+			data = gMalloc->realloc(data, _size, sizeof(uint64));
+			return true;
+		}
+
+		return false;
+	}
+
+public:
 	/// Return data buffer as type
 	template<typename T>
 	T * as() const
@@ -105,7 +124,7 @@ public:
 	 * Xor operator
 	 * 
 	 * @param [in] other second operand
-	 * @return new bit stream
+	 * @return new bitstream
 	 */
 	FORCE_INLINE BitStream operator^(const BitStream & other) const
 	{
@@ -159,6 +178,7 @@ public:
 	 * 
 	 * @param [in] dest destination bit stream
 	 * @param [in] perm permutation table
+	 * @return dest bitstream
 	 */
 	FORCE_INLINE BitStream & permute(BitStream & dest, const uint32 * perm)
 	{
@@ -186,6 +206,7 @@ public:
 	 * @param [in] dest destination bit stream
 	 * @param [in] subs subsitution map(s)
 	 * @param [in] n number of sub maps to cycle
+	 * @return dest bitstream
 	 * @{
 	 */
 	template<uint32 inSize, uint32 outSize>
@@ -231,6 +252,58 @@ public:
 	FORCE_INLINE BitStream slice(uint32 n, uint32 offset = 0) const
 	{
 		return BitStream(as<ubyte>() + offset, n);
+	}
+
+protected:
+	/**
+	 * Internal code to merge two bit streams
+	 */
+	FORCE_INLINE void append_internal(const BitStream & other)
+	{
+		uint64 * a = as<uint64>() + (count >> 6);
+		uint64 * b = other.as<uint64>();
+
+		const uint32 l = count % 64, r = 64 - l;
+		const uint64 bitmask = (1ULL << l) - 1;
+		uint64 u = *a & bitmask;
+
+		{
+			(*a = u) |= (*b << l);
+		}
+	}
+
+public:
+	/**
+	 * Append a bit stream
+	 * 
+	 * @param [in] other bit stream to append
+	 * @return self
+	 */
+	FORCE_INLINE BitStream & append(const BitStream & other)
+	{
+		const uint32 _size = (((count + other.count - 1) >> 6) + 1) << 3;
+		resizeIfNecessary(_size);
+
+		append_internal(other);
+		count += other.count;
+
+		return *this;
+	}
+
+	/**
+	 * Merge two bit streams
+	 * 
+	 * @param [in] other bit streams to merge
+	 * @return dest bitstream
+	 */
+	FORCE_INLINE BitStream merge(const BitStream & other)
+	{
+		// Copy first bitstream
+		BitStream out(data, count + other.count);
+
+		// Append second bitstream
+		out.append_internal(other);
+		return out;
 	}
 };
 
@@ -361,8 +434,7 @@ int main()
 
 	// Last round
 	l ^= (r.permute(e, xpn) ^= k).substitute<6, 4>(u, _subs, 8).permute(v, perm);
-
-	printf("%08x:%08x\n", l.as<uint32>()[0], r.as<uint32>()[0]);
+	output = l.merge(r);
 
 	return 0;
 }
