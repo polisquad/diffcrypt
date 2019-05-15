@@ -1,350 +1,9 @@
 #include "coremin.h"
 #include "math/math.h"
 #include "containers/sorting.h"
+#include "bitarray.h"
 
 Malloc * gMalloc = nullptr;
-
-class BitStream
-{
-protected:
-	/// Data buffer
-	void * data;
-
-	/// Number of bits
-	uint32 count;
-
-	/// Buffer size in bytes
-	uint32 size;
-
-public:
-	/// Default constructor
-	FORCE_INLINE explicit BitStream(uint32 _count = 0)
-		: data{nullptr}
-		, count{_count}
-		, size{(((_count - 1) >> 6) + 1) << 3}
-	{
-		if (size) data = gMalloc->malloc(size, sizeof(uint64));
-	}
-
-protected:
-	/// Reverse bit order in byte
-	static FORCE_INLINE ubyte reverseByte(ubyte b)
-	{
-		b = (b & 0xf0) >> 4 | (b & 0x0f) << 4;
-		b = (b & 0xcc) >> 2 | (b & 0x33) << 2;
-		b = (b & 0xaa) >> 1 | (b & 0x55) << 1;
-		return b;
-	}
-
-public:
-	/// Buffer constructor
-	FORCE_INLINE explicit BitStream(const void * buffer, uint32 _count)
-		: count{_count}
-		, size{(((_count - 1) >> 6) + 1) << 3}
-	{
-		// Copy data
-		if ((data = gMalloc->malloc(size, sizeof(uint64))))
-		#if 1
-			PlatformMemory::memcpy(data, buffer, size);
-		#else
-			for (uint32 i = 0; i < size; ++i)
-				as<ubyte>()[i] = reverseByte(reinterpret_cast<const ubyte*>(buffer)[i]);
-		#endif
-	}
-
-	/// Copy constructor
-	FORCE_INLINE BitStream(const BitStream & other)
-		: BitStream(other.data, other.count) {}
-	
-	/// Move constructor
-	FORCE_INLINE BitStream(BitStream && other)
-		: BitStream(other.count)
-	{
-		if (data) gMalloc->free(data);
-		data = other.data;
-		
-		other.data = nullptr;
-	}
-
-	/// Copy assignment
-	FORCE_INLINE BitStream & operator=(const BitStream & other)
-	{
-		count = other.count;
-		size = other.size;
-
-		// Copy data
-		if (data) gMalloc->free(data);
-		if (data = gMalloc->malloc(size, sizeof(uint64)))
-			PlatformMemory::memcpy(data, other.data, size);
-	}
-
-	/// Move assignment
-	FORCE_INLINE BitStream & operator=(BitStream && other)
-	{
-		// Dealloc data
-		if (data) gMalloc->free(data);
-
-		count = other.count;
-		size = other.size;
-		data = other.data;
-
-		other.data = nullptr;
-	}
-
-	/// Destructor
-	FORCE_INLINE ~BitStream()
-	{
-		if (data) gMalloc->free(data);
-	}
-
-protected:
-	/// Resize buffer if necessary
-	FORCE_INLINE bool resizeIfNecessary(uint32 _size)
-	{
-		if (_size < size)
-		{
-			data = gMalloc->realloc(data, _size, sizeof(uint64));
-			return true;
-		}
-
-		return false;
-	}
-
-public:
-	/// Return data buffer as type
-	template<typename T>
-	T * as() const
-	{
-		return reinterpret_cast<T*>(data);
-	}
-
-	/**
-	 * Xor compound operator
-	 * 
-	 * @param [in] other second operand
-	 * @return self
-	 */
-	FORCE_INLINE BitStream & operator^=(const BitStream & other)
-	{
-		uint64 * a = as<uint64>(), * b = other.as<uint64>();
-		const uint32 n = Math::min(size, other.size) >> 3;
-
-		// 64-bit xor
-		for (uint32 i = 0; i < n; ++i)
-			a[i] ^= b[i];
-		
-		return *this;
-	}
-
-	/**
-	 * Xor operator
-	 * 
-	 * @param [in] other second operand
-	 * @return new bitstream
-	 */
-	FORCE_INLINE BitStream operator^(const BitStream & other) const
-	{
-		return BitStream(*this) ^= other;
-	}
-
-	/**
-	 * Rotate left in-place
-	 * 
-	 * @param [in] n bits shift
-	 * @return self
-	 */
-	FORCE_INLINE BitStream & rotateLeft(int32 n)
-	{
-		// Max shift
-		uint32 s = Math::min(n, 8);
-		
-		ubyte * src = as<ubyte>();
-		ubyte v = 0, u = v;
-		ubyte bitmask = (1U << s) - 1;
-		for (int32 i = count >> 3; i >= 0; --i)
-		{
-			v = u, u = src[i] >> (8 - s);
-			(src[i] <<= s) |= v;
-		}
-		
-		src[count >> 3] |= u << (8 - (count & 0x7));
-		// ! Corner cases not handled
-		
-		return *this;
-	}
-
-	/**
-	 * Shuffle using a permutation table
-	 * 
-	 * @param [in] dest destination bit stream
-	 * @param [in] perm permutation table
-	 * @return dest bitstream
-	 */
-	FORCE_INLINE BitStream & permute(BitStream & dest, const uint32 * perm) const
-	{
-		ubyte * src = as<ubyte>();
-		ubyte * dst = dest.as<ubyte>();
-
-		for (uint32 i = 0, k; (k = i << 3) < dest.count; ++i, ++dst)
-		{
-			for (uint32 j = 0; j < 8; ++j)
-			{
-				// Get bit value
-				const uint32 r = perm[k + j];
-				const uint32 b = r >> 3, o = (r ^ 0x7) & 0x7;
-				const ubyte x = (src[b] >> o) & 0x1;
-
-				// Push in destination
-				(*dst <<= 1) |= x;
-			}
-		}
-
-		return dest;
-	}
-
-	/**	
-	 * Shuffle using subsitution maps
-	 * 
-	 * @param [in] dest destination bit stream
-	 * @param [in] subs subsitution map(s)
-	 * @param [in] n number of sub maps to cycle
-	 * @return dest bitstream
-	 * @{
-	 */
-	template<uint8 inSize, uint8 outSize>
-	FORCE_INLINE BitStream & substitute(BitStream & dest, const uint32 * subs[], uint32 numSubs) const
-	{
-		/* uint64 * src = as<uint64>(), * des = dest.as<uint64>();
-		uint32 i = 0, j = 0, s = 0;
-		uint32 u = (1U << inSize) - 1, v = (1U << outSize) - 1;
-
-		while (j < dest.count)
-		{
-			uint64 x = (*src & u) >> i;
-			uint64 t = static_cast<uint64>(subs[s][x]) << j;
-			(*des &= ~v) |= t;
-
-			// Shift bitmask
-			u <<= inSize, v <<= outSize;
-
-			// Increment pointers if necessary
-			src += ((i += inSize) & 0x3f) == 0;
-			des += ((j += outSize) & 0x3f) == 0;
-
-			// Next map
-			s = ++s == n ? 0 : s;
-		}
-
-		return dest; */
-
-		ubyte * src = as<ubyte>();
-		ubyte * dst = dest.as<ubyte>();
-		*dst = 0x0;
-		
-		uint16 b0 = 0, a0 = 0;
-		uint16 r = (1U << inSize) - 1;
-
-		for (uint32 i = 0, n = 8, m = 8, s = 0; i << 3 < count; ++i, n += 8)
-		{
-			const uint16 b = src[i] | (b0 << 8);
-
-			while (n >= inSize)
-			{
-				const ubyte t = (b >> (n -= inSize)) & r;
-				const ubyte x = subs[s][t];
-
-				*dst |= x << (m -= outSize);
-				if (m <= 0) (*++dst = 0) |= x << (m += 8);
-
-				// Next sbox
-				s = ++s == numSubs ? 0 : s;
-			}
-
-			b0 = b;
-		}
-
-		return dest;
-	}
-	template<uint32 inSize, uint32 outSize>
-	FORCE_INLINE BitStream & substitute(BitStream & dest, const uint32 * subs) const
-	{
-		return substitute<inSize, outSize>(dest, &subs, 1);
-	}
-	/// @}
-
-	/**
-	 * Returns a copy of a slice of the bit stream
-	 * 
-	 * @param [in] _count bit count
-	 * @param [in] offset initial offset (in bytes)
-	 * @return bit stream slice
-	 */
-	FORCE_INLINE BitStream slice(uint32 n, uint32 offset = 0) const
-	{
-		return BitStream(as<ubyte>() + offset, n);
-	}
-
-protected:
-	/**
-	 * Internal code to merge two bit streams
-	 */
-	FORCE_INLINE void append_internal(const BitStream & other)
-	{
-		ubyte * dst = as<ubyte>();
-		ubyte * src = other.as<ubyte>();
-
-		ubyte r = count & 0x7;
-		ubyte s = 8 - r;
-		ubyte v = *src >> s;
-
-		// ! Overwrite bits
-		dst[count >> 3] |= v;
-
-		ubyte u = 0;
-		int32 i = other.count >> 3;
-		dst += (count + other.count) >> 3, src += i;
-		for (; i >= 0; --i, --src, --dst)
-		{
-			v = u, u = *src >> s;
-			*dst = *src << r | v;
-		}
-	}
-
-public:
-	/**
-	 * Append a bit stream
-	 * 
-	 * @param [in] other bit stream to append
-	 * @return self
-	 */
-	FORCE_INLINE BitStream & append(const BitStream & other)
-	{
-		const uint32 _size = (((count + other.count - 1) >> 6) + 1) << 3;
-		resizeIfNecessary(_size);
-
-		append_internal(other);
-		count += other.count;
-
-		return *this;
-	}
-
-	/**
-	 * Merge two bit streams
-	 * 
-	 * @param [in] other bit streams to merge
-	 * @return dest bitstream
-	 */
-	FORCE_INLINE BitStream merge(const BitStream & other)
-	{
-		// Copy first bitstream
-		BitStream out(*this);
-		resizeIfNecessary((((count + other.count - 1) >> 6) + 1) << 3);
-
-		// Append second bitstream
-		out.append_internal(other);
-		return out;
-	}
-};
 
 #include <omp.h>
 double start;
@@ -441,35 +100,35 @@ int main()
 		subs[4], subs[5], subs[6], subs[7]
 	};
 	
-	/* char ptx[] = "\x01\x23\x45\x67\x89\xab\xcd\xef";
-	char key[] = "\x13\x34\x57\x79\x9b\xbc\xdf\xf1"; */
-	char ptx[] = "Hello world!";
-	char key[] = "SneppyRulez";
+	/* char ptx[] = "Hello world!";
+	char key[] = "SneppyRulez"; */
+	char key[] = "\x01\x23\x45\x67\x89\xab\xcd\xef";
+	char ptx[] = "CiaoSnep";
 
-	BitStream input(ptx, 64), output(64);
-	BitStream l, r;
-	BitStream u(32), v(32);
-	BitStream k0(key, 64), e(48);
-	BitStream k[16];
+	BitArray input(ptx, 64), output(64);
+	BitArray l, r;
+	BitArray u(32), v(32);
+	BitArray k0(key, 64), e(48);
+	BitArray k[16];
 
-	printf("input: %llx\n", input.as<uint64>()[0]);
+	printf("input: %llx\n", input.getData<uint64>()[0]);
 
 	//////////////////////////////////////////////////
 	// Key schedule
 	//////////////////////////////////////////////////
 	
-	BitStream c(28), d(28);
+	BitArray c(28), d(28);
 	const uint32 shifts[] = {1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1};
 	const uint32 kperm[] = {13, 16, 10, 23, 0, 4, 2, 27, 14, 5, 20, 9, 22, 18, 11, 3, 25, 7, 15, 6, 26, 19, 12, 1, 40, 51, 30, 36, 46, 54, 29, 39, 50, 44, 32, 47, 43, 48, 38, 55, 33, 52, 45, 41, 49, 35, 28, 31}; 
 
 	k0.permute(c, (const uint32[]){56, 48, 40, 32, 24, 16, 8, 0, 57, 49, 41, 33, 25, 17, 9, 1, 58, 50, 42, 34, 26, 18, 10, 2, 59, 51, 43, 35});
 	k0.permute(d, (const uint32[]){62, 54, 46, 38, 30, 22, 14, 6, 61, 55, 45, 37, 29, 21, 13, 5, 60, 52, 44, 36, 28, 20, 12, 4, 27, 19, 11, 3});
 
-	printf("key = %llx\n", k0.as<uint64>()[0]);
+	printf("key = %llx\n", k0.getData<uint64>()[0]);
 
 	for (uint32 i = 0; i < 16; ++i)
 	{
-		new (k + i) BitStream(48);
+		new (k + i) BitArray(48);
 
 		c.rotateLeft(shifts[i]);
 		d.rotateLeft(shifts[i]);
@@ -477,8 +136,8 @@ int main()
 		c.merge(d).permute(k[i], kperm);
 	}
 
-	for (uint32 i = 0; i < 1 << 18; ++i)
-	{
+	/* for (uint32 i = 0; i < 1 << 20; ++i)
+	{ */
 		// Initial permutation
 		input.permute(output, ip);
 
@@ -494,10 +153,11 @@ int main()
 
 		// Last round
 		l ^= (r.permute(e, xpn) ^= k[15]).substitute<6, 4>(u, _subs, 8).permute(v, perm);
-		l.merge(r).permute(output, fp);
-	}
+		input = l.merge(r);
+		input.permute(output, fp);
+	//}
 
-	printf("0x%llx\n", output.as<uint64>()[0]);
+	printf("0x%llx\n", output.getData<uint64>()[0]);
 
 	return 0;
 }
