@@ -246,6 +246,17 @@ Array<ubyte> decrypt(const Array<ubyte> &message, const Array<Array<ubyte>> &key
 	return m;
 }
 
+int numActivatedSBox(const Array<ubyte> &R){
+	Array<ubyte> x = expand(R);
+	int n=0;
+	for(int i=0; i<8; i++){
+		int used = 0;
+		for(int j=0; j<6; j++) if(x[i*6+j]) used = 1;
+		n += used;
+	}
+	return n;
+}
+
 int main()
 {
 	Memory::createGMalloc();
@@ -254,7 +265,7 @@ int main()
 	Array<ubyte> key = createBitArray(key_chars, 8);
 	Array<Array<ubyte>> keys = keySchedule(key);
 
-	char message_chars[] = "\x01\x23\x45\x67\x89\xAB\xCD\xEF";
+	char message_chars[] = "CiaoSnep";
 	Array<ubyte> m = createBitArray(message_chars, 8);
 
 	printf("Key:     "); printHex(key);
@@ -264,10 +275,28 @@ int main()
 	printf("         "); printChars(m);
 
 	m=encrypt(m,keys);
-	m=decrypt(m,keys);
+	//m=decrypt(m,keys);
 
 	printf("Output:  "); printHex(m);
 	printf("         "); printChars(m);
+	
+	/*
+	// dX_R sequences that activate just 1 sbox in F1
+	char level1_chars[] = "\x02\x04\x06\x20\x40\x60";
+	for(int i=0; i<4; i++){
+		for(int j=0; j<6; j++){
+			char chars[] = "\x00\x00\x00\x00";
+			char chars0[] = "\x00\x00\x00\x00";
+			chars[i] = level1_chars[j];
+			Array<ubyte> m = createBitArray(chars, 4);
+
+			Array<ubyte> n = createBitArray(chars0,4);
+			Array<ubyte> x = join(m,n);
+			x = permutateChoice(x,IPinv);
+			printHex(x);
+		}
+	}
+	*/
 
 	return 0;
 }
