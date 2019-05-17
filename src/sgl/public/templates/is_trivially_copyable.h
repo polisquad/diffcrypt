@@ -49,10 +49,7 @@ template<typename T>
 FORCE_INLINE typename EnableIf<!IsTriviallyCopyable<T>::value, void>::Type moveOrCopy(T * dest, const T * src, int64 n)
 {
 	// Copy construct each element
-	uint64 i = 0;
-
-	/// @todo remove
-	printf("not trivially copyable eh eh");
+	int64 i = 0;
 
 	for (; i < n - 8; i += 8)
 	{

@@ -203,6 +203,18 @@ public:
 	/// Returns true if array is valid
 	FORCE_INLINE bool isValid() const { return buffer && size; }
 
+	/// Returns first element of the array
+	/// @{
+	FORCE_INLINE T &		getFirst()			{ return buffer[0]; }
+	FORCE_INLINE const T &	getFirst() const	{ return buffer[0]; }
+	/// @}
+
+	/// Returns first element of the array
+	/// @{
+	FORCE_INLINE T &		getLast()		{ return buffer[count - 1]; }
+	FORCE_INLINE const T &	getLast() const	{ return buffer[count - 1]; }
+	/// @}
+
 	/// Force resize array
 	FORCE_INLINE bool resize(uint64 _size)
 	{

@@ -589,6 +589,8 @@ template<typename> struct TreeIterator;
 template<typename U>
 struct TreeIterator
 {
+	template<typename, typename, typename> friend class BinaryTree;
+	
 private:
 	/// Current node
 	BinaryNodeRef<U> node;
@@ -1026,33 +1028,11 @@ public:
 	 * @return removed node
 	 * @{
 	 */
-	void remove(typename ConstRef<T>::Type search)
+	void remove(NodeRef node)
 	{
-		if (LIKELY(root))
+		if (node)
 		{
-			// Find and remove
-			NodeRef node = root->find(search);
-			if (node)
-			{
-				NodeRef evicted = node->remove();
-				--numNodes;
-
-				/// Update root
-				if (evicted == root)
-					root = root->right;
-				else
-					root = root->getRoot();
-				
-				// Dealloc evicted node
-				allocator->free(evicted);
-			}
-		}
-	}
-	void remove(ConstIterator & it)
-	{
-		if (it.node)
-		{
-			NodeRef evicted = it.node->remove();
+			NodeRef evicted = node->remove();
 			--numNodes;
 
 			// Update root
@@ -1065,22 +1045,27 @@ public:
 			allocator->free(evicted);
 		}
 	}
-	void remove(Iterator & it)
+	FORCE_INLINE void remove(typename ConstRef<T>::Type search)
 	{
-		if (it.node)
-		{
-			NodeRef evicted = it.node->remove();
-			--numNodes;
-
-			// Update root
-			if (evicted == root)
-				root = root->left ? root->left : root->right;
-			else
-				root = root->getRoot();
-
-			// Dealloc evicted node
-			allocator->free(evicted);
-		}
+		if (LIKELY(root))
+			// Find and remove
+			remove(root->find(search));
+	}
+	FORCE_INLINE void remove(ConstIterator it)
+	{
+		remove(it.node);
+	}
+	FORCE_INLINE void remove(Iterator it)
+	{
+		remove(it.node);
+	}
+	FORCE_INLINE void remove(TreeIterator it)
+	{
+		remove(it.node);
+	}
+	FORCE_INLINE void remove(ConstTreeIterator it)
+	{
+		remove(it.node);
 	}
 	/// @}
 
