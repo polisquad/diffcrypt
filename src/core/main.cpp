@@ -230,6 +230,20 @@ Array<ubyte> encrypt(const Array<ubyte> &message, const Array<Array<ubyte>> &key
 	return m;
 }
 
+Array<ubyte> partialEncrypt(const Array<ubyte> &message, const Array<Array<ubyte>> &keys) {
+	Array<ubyte> m = permutateChoice(message,IP);
+	Array<ubyte> L(32), R(32);
+	for(int i=0; i<6; i++){
+		L = m(0,32);
+		R = m(32,64);
+		Array<ubyte> oldR = R;
+		R = xorOp(L,f(R,keys[i]));
+		L = oldR;
+		if(i!=15) m = join(L,R);
+	}
+	return R;
+}
+
 Array<ubyte> decrypt(const Array<ubyte> &message, const Array<Array<ubyte>> &keys) {
 	Array<ubyte> m = permutateChoice(message,IP);
 	Array<ubyte> L(32), R(32);
@@ -265,7 +279,7 @@ int main()
 	Array<ubyte> key = createBitArray(key_chars, 8);
 	Array<Array<ubyte>> keys = keySchedule(key);
 
-	char message_chars[] = "CiaoSnep";
+	/*char message_chars[] = "CiaoSnep";
 	Array<ubyte> m = createBitArray(message_chars, 8);
 
 	printf("Key:     "); printHex(key);
@@ -279,7 +293,33 @@ int main()
 
 	printf("Output:  "); printHex(m);
 	printf("         "); printChars(m);
-	
+	*/
+
+	srand(time(NULL));
+	char message_chars[] = "CiaoSnep";
+
+	int counter = 0;
+	int N = 100;
+
+	for(int i=0; i<N; i++){
+		for(int j=0; j<8; j++) message_chars[j] = rand();
+		Array<ubyte> m1 = createBitArray(message_chars, 8);
+		Array<ubyte> m2 = m1;
+		m2[11] ^= 0x1;
+		m1=encrypt(m1,keys);
+		m2=encrypt(m1,keys);
+		int differentialHolds = 1;
+		for(int j=0; j<32; j++){
+			if(j==11) if(m1[j]==m2[j]) differentialHolds = 0;
+			else{
+				if(m1[j]!=m2[j]) differentialHolds = 0;
+			}
+		}
+		counter += differentialHolds;
+	}
+
+	printf("prob = %f\n",(float)counter/(float)N);
+
 	/*
 	// dX_R sequences that activate just 1 sbox in F1
 	char level1_chars[] = "\x02\x04\x06\x20\x40\x60";
