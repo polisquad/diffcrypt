@@ -3,6 +3,8 @@
 #include "containers/sorting.h"
 #include "bitarray.h"
 
+const uint32 numRounds = 8;
+
 Malloc * gMalloc = nullptr;
 
 #include <omp.h>
@@ -731,7 +733,7 @@ public:
 		BitArray dx(48);
 		paths.getLast().dr.permute(dx, xpn);
 
-		const uint32 numLeftRounds = numRounds - paths.getCount() - 2;
+		const int32 numLeftRounds = numRounds - paths.getCount() - 2;
 
 		if (numLeftRounds)
 		{
@@ -747,11 +749,11 @@ public:
 				p *= max / 64.f;
 			}
 
-			for (uint32 i = 0; i < numLeftRounds; ++i)
-				p *= 1.f;
+			for (int32 i = 0; i < numLeftRounds; ++i)
+				p *= 1.f / 8.f;
 		}
 		
-		h = -log(p);
+		h = -log2(p);
 	}
 
 protected:
@@ -765,9 +767,13 @@ protected:
 			uint32 x = dx(i * 6, (i + 1) * 6);
 			if (x != 0)
 				for (uint32 y = 0; y < 16; ++y)
-					expand_internal(out, i + 1, dx, dy.merge(BitArray(&y, 4)), p * (diffs[i][x * 16 + y] / 64.f), xpn, perm, diffs);
+				{
+					const float32 sp = diffs[i][x * 16 + y] / 64.f;
+					ubyte _y = y << 4;
+					expand_internal(out, i + 1, dx, dy.merge(BitArray(&_y, 4)), p * sp, xpn, perm, diffs);
+				}
 			else
-				expand_internal(out, i + 1, dx, dy.merge(BitArray((const ubyte[]){0x0}, 4)), p, xpn, perm, diffs);
+				expand_internal(out, i + 1, dx, dy.merge(BitArray("\x00", 4)), p, xpn, perm, diffs);
 		}
 		else
 		{
@@ -787,8 +793,8 @@ protected:
 			n.paths.add(next);
 
 			// Update g and h
-			n.g -= log(p);
-			n.computeH(xpn, diffs, 8);
+			n.g -= log2(p);
+			n.computeH(xpn, diffs, numRounds);
 
 			// Add to output
 			out.push(n);
@@ -808,7 +814,7 @@ public:
 		BitArray dx(48);
 		BitArray dy(0);
 
-		expand_internal(out, 0, paths.getLast().dr.permute(dx, perm), dy, 1.f, xpn, perm, diffs);
+		expand_internal(out, 0, paths.getLast().dr.permute(dx, xpn), dy, 1.f, xpn, perm, diffs);
 
 		return out;
 	}
@@ -832,43 +838,49 @@ int main()
 	{
 		Node n;
 		n.init(BitArray(dL[i], 64), ip, xpn);
-		n.computeH(xpn, _diffs, 8);
+		n.computeH(xpn, _diffs, numRounds);
 		decisionTree.insert(n);
 	}
 
 	for (;;)
 	{
 		auto it = decisionTree.begin();
-		if (it->paths.getCount() + 2 >= 8) break;
+		if (it->paths.getCount() + 2 >= numRounds) break;
 
 		for (auto & node : it->expand(xpn, perm, _diffs))
 		{
-			printf("node cost: %f + %f = %f\n", node.g, node.h, node.g + node.h);
+			//printf("node cost: %f + %f = %f\n", node.g, node.h, node.g + node.h);
 			decisionTree.insert(node);
 		}
 
 		// Delete expanded node
 		decisionTree.remove(it);
 
+		if (decisionTree.getCount() > 1U << 20)
+		{
+			const uint32 numDeleted = decisionTree.getCount() - (1U << 20);
+			auto it = decisionTree.last();
+			for (uint32 i = 0; i < numDeleted; ++i, --it)
+				decisionTree.remove(it);
+		}
+
 		printf("num nodes: %u\n", decisionTree.getCount());
 		printf("min cost:  %f,%f\n", decisionTree.begin()->g, decisionTree.begin()->h);
 		for (auto p : decisionTree.begin()->paths)
 			printf("  - dy: %08x / dr: %08x / dl: %08x\n", p.dy.getData<uint32>()[0], p.dr.getData<uint32>()[0], p.dl.getData<uint32>()[0]);
 
+		printf("\n");
 		//getc(stdin);
 	}
-
-	printf("final cost:  %f,%f\n", decisionTree.begin()->g, decisionTree.begin()->h);
-
-	return 0;
+	
+	auto & best = *decisionTree.begin();
+	const uint32 lastDR = best.paths.getLast().dr.getData<uint32>()[0];
 
 	const uint32 * _subs[] = {
 		subs[0], subs[1], subs[2], subs[3],
 		subs[4], subs[5], subs[6], subs[7]
 	};
 	
-	/* char ptx[] = "Hello world!";
-	char key[] = "SneppyRulez"; */
 	char key[] = "\x01\x23\x45\x67\x89\xab\xcd\xef";
 	char ptx[] = "CiaoSnep";
 
@@ -877,8 +889,6 @@ int main()
 	BitArray u(32), v(32);
 	BitArray k0(key, 64), e(48);
 	BitArray k[16];
-
-	printf("input: %llx\n", input.getData<uint64>()[0]);
 
 	//////////////////////////////////////////////////
 	// Key schedule
@@ -891,8 +901,6 @@ int main()
 	k0.permute(c, (const uint32[]){56, 48, 40, 32, 24, 16, 8, 0, 57, 49, 41, 33, 25, 17, 9, 1, 58, 50, 42, 34, 26, 18, 10, 2, 59, 51, 43, 35});
 	k0.permute(d, (const uint32[]){62, 54, 46, 38, 30, 22, 14, 6, 61, 55, 45, 37, 29, 21, 13, 5, 60, 52, 44, 36, 28, 20, 12, 4, 27, 19, 11, 3});
 
-	printf("key = %llx\n", k0.getData<uint64>()[0]);
-
 	for (uint32 i = 0; i < 16; ++i)
 	{
 		new (k + i) BitArray(48);
@@ -902,25 +910,56 @@ int main()
 
 		c.merge(d).permute(k[i], kperm);
 	}
+
+	srand(clock());
 	
-	// Initial permutation
-	input.permute(output, ip);
-
-	// Split in left and right blocks
-	l = output.slice(32), r = output.slice(32, 4);
-
-	for (uint32 i = 0; i < 15; ++i)
+	uint32 cnt = 0;
+	uint32 tot; for (tot = 0; tot < 1 << 24; ++tot)
 	{
-		// DES round
-		(r.permute(e, xpn) ^= k[i]).substitute<6, 4>(u, _subs, 8).permute(v, perm) ^= l;
-		l = r, r = v;
+		uint64 q = uint64(rand()) | uint64(rand()) << 32;
+		BitArray ptxs[] = {
+			BitArray(&q, 64),
+			BitArray(&q, 64)
+		};
+		ptxs[1] ^= best.paths.getFirst().dr.merge(best.paths.getFirst().dl);
+		BitArray ctxs[2];
+
+		// Initial permutation
+		//input.permute(output, ip);
+
+		for (uint32 h = 0; h < 2; ++h)
+		{
+			BitArray & ptx = ptxs[h];
+
+			// Split in left and right blocks
+			l = ptx.slice(32), r = ptx.slice(32, 4);
+
+			for (uint32 i = 0; i < numRounds - 2; ++i)
+			{
+				// DES round
+				(r.permute(e, xpn) ^= k[i]).substitute<6, 4>(u, _subs, 8).permute(v, perm) ^= l;
+				l = r, r = v;
+			}
+
+			ctxs[h] = r;
+		}
+		
+		BitArray bar = ctxs[0] ^ ctxs[1];
+		const uint32 foo = bar.getData<uint32>()[0];
+		//printf("%08x == %08x (cnt: %u)\n", best.paths[1].dr.getData<uint32>()[0], foo, cnt);
+		cnt += (best.paths.getLast().dr.getData<uint32>()[0] == foo);
+
+		if ((tot & 0xffff) == 0) printf("%u) %.10f\n", tot, cnt / (float64)tot);
+
+		// 0.0000070408
+		// Last round
+		/* l ^= (r.permute(e, xpn) ^= k[15]).substitute<6, 4>(u, _subs, 8).permute(v, perm);
+		l.merge(r).permute(output, fp); */
+
+		//printf("0x%llx\n", output.getData<uint64>()[0]);
 	}
 
-	// Last round
-	l ^= (r.permute(e, xpn) ^= k[15]).substitute<6, 4>(u, _subs, 8).permute(v, perm);
-	l.merge(r).permute(output, fp);
-
-	printf("0x%llx\n", output.getData<uint64>()[0]);
+	printf("%u / %u -> %f\n", cnt, tot, cnt / (float32)tot);
 
 	return 0;
 }

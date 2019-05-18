@@ -180,7 +180,7 @@ public:
 	 */
 	FORCE_INLINE BitArray operator^(const BitArray & other) const
 	{
-		return BitArray(*this) ^ other;
+		return BitArray(*this) ^= other;
 	}
 
 	/**
