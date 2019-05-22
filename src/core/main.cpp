@@ -15,7 +15,9 @@ Array<int> IPinv((const int[]){
 	35, 3, 43, 11, 51, 19, 59, 27, 34, 2, 42, 10, 50, 18, 58, 26,
 	33, 1, 41, 9, 49, 17, 57, 25, 32, 0, 40, 8, 48, 16, 56, 24}, 64);
 Array<int> Permut((const int[]){
-	15, 6, 19, 20, 28, 11, 27, 16, 0, 14, 22, 25, 4, 17, 30, 9,  1, 7, 23, 13, 31, 26, 2, 8, 18, 12, 29, 5, 21, 10, 3, 24},32);
+	15, 6, 19, 20, 28, 11, 27, 16, 0, 14, 22, 25, 4, 17, 30, 9, 1, 7, 23, 13, 31, 26, 2, 8, 18, 12, 29, 5, 21, 10, 3, 24},32);
+Array<int> PermutInv((const int[]){
+	8, 16, 22, 30, 12, 27, 1, 17, 23, 15, 29, 5, 25, 19, 9, 0, 7, 13, 24, 2, 3, 28, 10, 18, 31, 11, 21, 6, 4, 26, 14, 20},32);
 const unsigned char sboxes[8][64] = {
 	{
 		14, 0, 4, 15, 13, 7, 1, 4, 2, 14, 15, 2, 11, 13, 8, 1,
@@ -231,9 +233,9 @@ Array<ubyte> encrypt(const Array<ubyte> &message, const Array<Array<ubyte>> &key
 }
 
 Array<ubyte> partialEncrypt(const Array<ubyte> &message, const Array<Array<ubyte>> &keys) {
-	Array<ubyte> m = permutateChoice(message,IP);
+	Array<ubyte> m = message;
 	Array<ubyte> L(32), R(32);
-	for(int i=0; i<6; i++){
+	for(int i=0; i<2; i++){
 		L = m(0,32);
 		R = m(32,64);
 		Array<ubyte> oldR = R;
@@ -299,25 +301,25 @@ int main()
 	char message_chars[] = "CiaoSnep";
 
 	int counter = 0;
-	int N = 100;
-
+	int N = 1000;
 	for(int i=0; i<N; i++){
 		for(int j=0; j<8; j++) message_chars[j] = rand();
 		Array<ubyte> m1 = createBitArray(message_chars, 8);
 		Array<ubyte> m2 = m1;
-		m2[11] ^= 0x1;
-		m1=encrypt(m1,keys);
-		m2=encrypt(m1,keys);
-		int differentialHolds = 1;
+		m2[6] ^= 0x1;
+		m1=partialEncrypt(m1,keys);
+		m2=partialEncrypt(m2,keys);
+		Array<ubyte> x = xorOp(m1,m2);
+		int c = 0;
 		for(int j=0; j<32; j++){
-			if(j==11) if(m1[j]==m2[j]) differentialHolds = 0;
-			else{
-				if(m1[j]!=m2[j]) differentialHolds = 0;
-			}
+			if(x[j]) c++;
 		}
-		counter += differentialHolds;
+		if(c==2){
+			counter += 1;
+			printBits(x);
+		}
 	}
-
+	printf("# success = %d\n",counter);
 	printf("prob = %f\n",(float)counter/(float)N);
 
 	/*
