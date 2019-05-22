@@ -1041,7 +1041,8 @@ public:
 			else
 				root = root->getRoot();
 
-			// Dealloc evicted node
+			// Dealloc evicted nodeù
+			evicted->data.~T();
 			allocator->free(evicted);
 		}
 	}

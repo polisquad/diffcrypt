@@ -3,7 +3,7 @@
 #include "containers/sorting.h"
 #include "bitarray.h"
 
-const uint32 numRounds = 8;
+const uint32 numRounds = 6;
 
 Malloc * gMalloc = nullptr;
 
@@ -750,7 +750,7 @@ public:
 			}
 
 			for (int32 i = 0; i < numLeftRounds; ++i)
-				p *= 1.f / 8.f;
+				p *= 0.25f;
 		}
 		
 		h = -log2(p);
@@ -856,7 +856,7 @@ int main()
 		// Delete expanded node
 		decisionTree.remove(it);
 
-		if (decisionTree.getCount() > 1U << 20)
+		if (decisionTree.getCount() > 1U << 22)
 		{
 			const uint32 numDeleted = decisionTree.getCount() - (1U << 20);
 			auto it = decisionTree.last();

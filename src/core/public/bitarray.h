@@ -84,6 +84,12 @@ public:
 		other.data = nullptr;
 	}
 
+	/// Destructor
+	FORCE_INLINE ~BitArray()
+	{
+		if (data) gMalloc->free(data);
+	}
+
 protected:
 	/// Resize if necessary
 	FORCE_INLINE bool resizeIfNecessary(uint32 _size)

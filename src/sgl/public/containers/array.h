@@ -8,6 +8,7 @@
 #include "hal/malloc_ansi.h"
 #include "templates/const_ref.h"
 #include "templates/is_trivially_copyable.h"
+#include "templates/is_trivially_destructible.h"
 
 /**
  * @class Array containers/array.h
@@ -157,11 +158,27 @@ public:
 		other.buffer			= nullptr; 
 	}
 
+	template<typename _T = T>
+	FORCE_INLINE typename EnableIf<IsTriviallyDestructible<_T>::value, void>::Type destroyElements(Iterator begin, Iterator end)
+	{
+		// Do nothing
+	}
+
+	template<typename _T = T>
+	FORCE_INLINE typename EnableIf<!IsTriviallyDestructible<_T>::value, void>::Type destroyElements(Iterator begin, Iterator end)
+	{
+		for (; begin != end; ++begin)
+			begin->~_T();
+	}
+
 	/// Destructor
 	FORCE_INLINE ~Array()
 	{
-		//if (buffer)
-			//allocator->free(buffer);
+		if (buffer)
+		{
+			destroyElements(begin(), end());
+			allocator->free(buffer);
+		}
 		
 		if (bHasOwnAllocator)
 			delete allocator;

@@ -9,7 +9,7 @@ include(cmake/platform.cmake)
 ## Build type config
 set(CMAKE_CXX_FLAGS_DEBUG			"-DSGL_BUILD_DEBUG -DBUILD_DEBUG=1 -ggdb -O0")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO	"-DSGL_BUILD_DEVELOPMENT -DBUILD_DEVELOPMENT=1 -ggdb -O3")
-set(CMAKE_CXX_FLAGS_RELEASE			"-DSGL_BUILD_RELEASE -DBUILD_RELEASE=1 -Ofast")
+set(CMAKE_CXX_FLAGS_RELEASE			"-DSGL_BUILD_RELEASE -DBUILD_RELEASE=1 -Ofast -fno-tree-slp-vectorize")
 
 # Compiler setup --------------------------------
 ## CXX preferences
