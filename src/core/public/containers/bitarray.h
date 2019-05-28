@@ -260,7 +260,7 @@ public:
 	 * @{
 	 */
 	template<uint8 inSize, uint8 outSize>
-	FORCE_INLINE BitArray & substitute(BitArray & dest, const uint32 * subs[], uint32 numSubs) const
+	FORCE_INLINE BitArray & substitute(BitArray & dest, const uint32 * const subs[], uint32 numSubs) const
 	{
 		ubyte * src = data;
 		ubyte * dst = dest.data; *dst = 0x0;
