@@ -753,6 +753,9 @@ public:
 			// Next link
 			it = next;
 		}
+
+		head = tail = nullptr;
+		count = 0;
 	}
 
 	/// Destructor

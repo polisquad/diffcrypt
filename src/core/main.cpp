@@ -700,7 +700,7 @@ struct RoundNode
 	RoundInstance instance;
 
 	/// Round differential probability
-	float32 p;
+	float64 p;
 
 	/// Current round
 	uint32 round;
@@ -732,7 +732,7 @@ public:
 	//////////////////////////////////////////////////
 	
 	/// Returns round score (logarithmic differential probability)
-	FORCE_INLINE float32 getScore()
+	FORCE_INLINE float64 getScore()
 	{
 		return log2(p);
 	}
@@ -746,7 +746,7 @@ protected:
 	 * @param [in] params des parameters
 	 * @param [in] s sbox index
 	 */
-	void expand_internal(List<RoundNode> & out, const BitArray & dx, const BitArray & dy, float32 p0 = 1.f, uint32 s = 0) const
+	void expand_internal(List<RoundNode> & out, const BitArray & dx, const BitArray & dy, float64 p0 = 1.f, uint32 s = 0) const
 	{
 		if (s < 8)
 		{
@@ -759,7 +759,7 @@ protected:
 
 					if (d > 0)
 					{
-						const float32 p = d / 64.f;
+						const float64 p = d / 64.f;
 						const ubyte _y = y << 4;
 						expand_internal(out, dx, dy.merge(BitArray(&_y, 4)), p0 * p, s + 1);
 					}
@@ -815,10 +815,10 @@ protected:
 	List<RoundInstance> rounds;
 
 	/// Cost
-	float32 g;
+	float64 g;
 
 	/// Heuristic value
-	float32 h;
+	float64 h;
 
 	/// Des parameters
 	const DesParams * params;
@@ -844,9 +844,15 @@ public:
 	Path & operator=(Path && other) = default;
 
 	/// Get total path cost
-	FORCE_INLINE float32 getTotalCost() const
+	FORCE_INLINE float64 getTotalCost() const
 	{
 		return g + h;
+	}
+
+	/// Get actual path cost
+	FORCE_INLINE float64 getActualCost() const
+	{
+		return g;
 	}
 
 	/// Returns true if path is a complete path
@@ -876,7 +882,7 @@ public:
 	void computeH()
 	{
 		// Out probability
-		float32 p = 1.f;
+		float64 p = 1.f;
 
 		BitArray dx(48);
 		rounds.last()->dr.permute(dx, params->xpn);
@@ -913,7 +919,7 @@ protected:
 	 * @param [in] params des parameters
 	 * @param [in] s sbox index
 	 */
-	void expand_internal(List<Path> & out, const BitArray & dx, const BitArray & dy, float32 p0 = 1.f, uint32 s = 0) const
+	void expand_internal(List<Path> & out, const BitArray & dx, const BitArray & dy, float64 p0 = 1.f, uint32 s = 0) const
 	{
 		if (s < 8)
 		{
@@ -926,7 +932,7 @@ protected:
 
 					if (d > 0)
 					{
-						const float32 p = d / 64.f;
+						const float64 p = d / 64.f;
 						const ubyte _y = y << 4;
 						expand_internal(out, dx, dy.merge(BitArray(&_y, 4)), p0 * p, s + 1);
 					}
@@ -965,12 +971,11 @@ public:
 		// Out list of expanded node
 		List<Path> out;
 
-		// Compute sbox input
-		const RoundInstance & lastRound = *rounds.last();		
+		// Compute sbox input	
 		BitArray dx(48), dy(0);
 
 		// Recursive expansion
-		expand_internal(out, lastRound.dr.permute(dx, params->xpn), dy);
+		expand_internal(out, rounds.last()->dr.permute(dx, params->xpn), dy);
 
 		return out;
 	}
@@ -983,7 +988,7 @@ protected:
 	 * @param [in] p0 out differential probability
 	 * @param [in] s simulated sbox index
 	 */
-	FORCE_INLINE float32 sample_internal(const BitArray & dx, float32 p0 = 1.f, uint32 s = 0)
+	float64 sample_internal(BitArray & dy, const BitArray & dx, float64 p0 = 1.f, uint32 s = 0)
 	{
 		if (s < 8)
 		{
@@ -998,10 +1003,10 @@ protected:
 				}
 
 				uint32 _y = y << 4;
-				return sample_internal(dx, p0 * (d / 64.f), s + 1);
+				return sample_internal(dy.append(BitArray(&_y, 4)), dx, p0 * (d / 64.f), s + 1);
 			}
 			else
-				return sample_internal(dx, p0, s + 1);
+				return sample_internal(dy.append(BitArray((const ubyte[]){0x0}, 4)), dx, p0, s + 1);
 		}
 
 		return p0;
@@ -1013,13 +1018,30 @@ public:
 	 * 
 	 * @return simualated path cost
 	 */
-	float32 sample()
+	float64 sample()
 	{
-		// Compute sbox input
-		BitArray dx(48);
+		// Sbox input
+		BitArray dx(48), dr = rounds.last()->dr, dl = rounds.last()->dl;
+		dr.permute(dx, params->xpn);
 
-		float32 p = sample_internal(rounds.last()->dr.permute(dx, params->xpn));
-		return -log2(p);
+		// Number of rounds to simulate
+		const uint32 numLeftRounds = params->numRounds - rounds.getCount() - 2;
+
+		float64 g0 = 0.f;
+		for (uint32 r = 0; r < numLeftRounds; ++r)
+		{
+			// Sample sboxes output
+			BitArray dy(0);
+			g0 -= log2(sample_internal(dy, dx));
+
+			// Compute next round
+			BitArray t = dl;
+			dl = dr;
+			dy.permute(dr, params->perm) ^= t;
+			dr.permute(dx, params->xpn);
+		}
+
+		return g + g0;
 	}
 };
 
@@ -1031,7 +1053,7 @@ public:
 	T data;
 
 	/// Node average cost
-	float32 cost;
+	float64 cost;
 
 	/// Num visits
 	uint32 visitCount;
@@ -1062,10 +1084,10 @@ public:
 	 * @param [in] pVisits parent node visit count
 	 * @return exploration value
 	 */
-	FORCE_INLINE float32 getValue(uint32 pVisits) const
+	FORCE_INLINE float64 getValue(uint32 pVisits) const
 	{
-		const float32 k = 0.1f;
-		return visitCount ? 1.f / (visitCount * cost) + 0.1f * sqrt(log(pVisits) / visitCount) : FLT_MAX;
+		const float64 k = 1.f;
+		return visitCount && cost ? 1.f / (visitCount * cost) + k * sqrt(log(pVisits) / visitCount) : FLT_MAX;
 	}
 
 	// Tick this node, updates its cost and visit count
@@ -1074,12 +1096,22 @@ public:
 		cost *= visitCount;
 		cost += data.sample();
 		cost /= ++visitCount;
+		/* cost = Math::min(cost, data.sample());
+		++visitCount; */
 	}
 };
+
+void printProgress(uint32 i, uint32 tot)
+{
+	if (i % (tot / 32) == 0)
+		printf("."), fflush(stdout);
+}
 
 int32 main()
 {
 	Memory::createGMalloc();
+
+	srand(clock());
 
 	DesParams params{
 		numRounds : 6,
@@ -1107,30 +1139,59 @@ int32 main()
 	{
 		Path path(&params);
 		path.init(BitArray(dL[i], 64));
+
+		printf("%.10f\n", path.sample());
 		
 		nodes.push(SearchNode<Path>(move(path)));
 	}
 
-	for (uint32 r = 1; r < params.numRounds - 2; ++r)
+	for (uint32 r = 1; r <= params.numRounds - 2; ++r)
 	{
-		float32 max = -FLT_MAX;
+		float64 max = -FLT_MAX;
 		SearchNode<Path> * node = nullptr;
 
-		for (uint32 i = 0; i < 1u << 16; ++i)
+		for (uint32 i = 0; i < 1u << 18; ++i)
 		{
+			printProgress(i, 1u << 18);
+
 			// Find node to sample
 			max = -FLT_MAX;
-			for (auto & n : nodes)
+
+			auto it = nodes.begin();
+			auto end = nodes.end();
+
+			for (uint32 j = 0; it != end; ++it, ++j)
 			{
-				const float32 v = n.getValue(i);
-				if (v > max) max = v, node = &n;
+				const float64 v = it->getValue(i);
+				if (v > max) max = v, node = &*it;
 			}
 
 			// Sample node and repeat
 			node->update();
 		}
+		
+		/* auto it = nodes.begin();
+		for (uint32 i = 0; i < 1u << 16; ++i)
+		{
+			printProgress(i, 1u << 16);
 
-		printf("best node: %p {v = %.3f, cost = %.3f}\n", node, max, node->data.getTotalCost());
+			it->update();
+
+			// Start over
+			if (++it == nodes.end())
+				it = nodes.begin();
+		}
+
+		float32 max = -FLT_MAX;
+		SearchNode<Path> * node = nullptr;
+		for (auto & n : nodes)
+		{
+			float32 v = n.getValue(1u << 16);
+			if (v > max) max = v, node = &n;
+		} */
+
+		printf("\n");
+		printf("best node: %p {v = %.3f, cost = %.3f}\n", node, max, node->data.getActualCost());
 
 		// Expand best node
 		List<Path> paths = node->data.expand();
@@ -1138,8 +1199,9 @@ int32 main()
 		// Next round nodes
 		nodes.empty();
 		for (auto & path : paths)
-			nodes.insert(SearchNode<Path>(move(path)));
+			nodes.push(SearchNode<Path>(move(path)));
 
+		printf("press any key to resume >");
 		getc(stdin);
 	}
 
