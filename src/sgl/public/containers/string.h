@@ -34,7 +34,7 @@ public:
 		if (string)
 		{
 			data.count = data.size - 1;
-			moveOrCopy(data.buffer, string, data.count);
+			copy(data.buffer, string, data.count);
 
 			// Teminate string
 			data[data.count] = '\0';
@@ -47,7 +47,7 @@ public:
 	{
 		// Copy data with \0
 		data.count = other.data.count;
-		moveOrCopy(data.buffer, other.data.buffer, data.count + 1);
+		copy(data.buffer, other.data.buffer, data.count + 1);
 	}
 
 	/// Provides access to underying data
@@ -119,6 +119,8 @@ public:
 		data.resizeIfNecessary(data.count + 2);
 		data.buffer[data.count++] = c;
 		data.buffer[data.count] = '\0';
+
+		return *this;
 	}
 
 	/**
@@ -134,6 +136,8 @@ public:
 		data.resizeIfNecessary(data.count + n);
 		PlatformMemory::memcpy(data.buffer + data.count, s, n);
 		data.buffer[data.count += n] = '\0';
+
+		return *this;
 	}
 	FORCE_INLINE String & operator+=(const ansichar * s)	{ return append(s, PlatformString::strlen(s)); }
 	FORCE_INLINE String & operator+=(const String & s)		{ return append(*s, s.data.count); }

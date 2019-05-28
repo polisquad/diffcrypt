@@ -4,12 +4,10 @@
 #include <type_traits>
 
 /**
- * Just a typedef.
- * And it's gonna stay like that
+ * @struct IsBaseOf templates/is_base_of.h
+ * 
+ * Sets value to true if target derives from base class
  */
-template<class Base, class Derived>
-using IsBaseOf = std::is_base_of<Base, Derived>;
-
-/// @brief Quick value of @ref IsPointer
-#define IsBaseOfV(base, derived) IsBaseOf<base, derived>::value
+template<typename BaseT, typename DerivedT>
+struct IsBaseOf { enum {value = __is_base_of(BaseT, DerivedT)}; };
 

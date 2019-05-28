@@ -1,6 +1,8 @@
 #pragma once
 
 /**
+ * @struct IsPod templates/is_pod.h
+ * 
  * Sets value to true if type id POD
  */
 template<typename T>

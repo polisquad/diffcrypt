@@ -1,23 +1,23 @@
 #pragma once
 
 #include "core_types.h"
-#include "hal/platform_memory.h"
 #include "hal/malloc_ansi.h"
-#include "templates/const_ref.h"
-#include "templates/is_trivially_copyable.h"
+#include "hal/platform_memory.h"
 #include "templates/functional.h"
+#include "templates/is_same_type.h"
+#include "templates/reference.h"
 
 //////////////////////////////////////////////////
 // Binary Node
 //////////////////////////////////////////////////
 
 /**
- * @struct BinaryNode<T>containers/binary_tree.h
+ * @struct BinaryNode containers/binary_tree.h
  * 
- * A standalone node of a binary tree.
- * The template type must define at least
- * operator<() and operator>() for node
- * comparison.
+ * A standalone node of a binary tree
+ * 
+ * @param T data type
+ * @param CompareT comparison class
  */
 template<typename T, typename CompareT = Compare<T>>
 struct GCC_ALIGN(32) BinaryNode
@@ -52,29 +52,30 @@ public:
 
 public:
 	/// Default constructor
+	template<typename _T = T>
 	FORCE_INLINE BinaryNode(
-		typename ConstRef<T>::Type _data,
+		_T && _data,
 		NodeColor _color = NodeColor::RED,
-		BinaryNode* _parent = nullptr,
-		BinaryNode* _left = nullptr,
-		BinaryNode* _right = nullptr
+		BinaryNode * _parent = nullptr,
+		BinaryNode * _left = nullptr,
+		BinaryNode * _right = nullptr
 	)
 		: parent(_parent)
 		, left(_left)
 		, right(_right)
 		, next(nullptr)
 		, prev(nullptr)
-		, data(_data)
+		, data(forward<_T>(_data))
 		, color(_color)
 	{
-		if (left)	prev = left->getMax();
-		if (right)	next = right->getMin();
+		if (left) prev = left->getMax();
+		if (right) next = right->getMin();
 	}
 
 	/// Returns true if parent matches color
 	/// @{
-	FORCE_INLINE bool isBlack()	{ return color == NodeColor::BLACK; }
-	FORCE_INLINE bool isRed()	{ return color == NodeColor::RED; }
+	FORCE_INLINE bool isBlack()	const { return color == NodeColor::BLACK; }
+	FORCE_INLINE bool isRed()	const { return color == NodeColor::RED; }
 	/// @}
 
 	/// Get root of this tree
@@ -91,7 +92,7 @@ public:
 	 * @param [in] depth initial depth of this node
 	 * @return subtree height
 	 */
-	uint32 getMaxHeight(uint32 depth = 0)
+	uint32 getMaxHeight(uint32 depth = 0) const
 	{
 		uint32 leftDepth	= left != nullptr ? left->getHeight(depth + 1) : 0;
 		uint32 rightDepth	= right != nullptr ? right->getHeight(depth + 1) : 0;
@@ -106,7 +107,7 @@ public:
 	 * @param [in] depth initial depth of this node
 	 * @return subtree height
 	 */
-	uint32 getMinHeight(uint32 depth = 0)
+	uint32 getMinHeight(uint32 depth = 0) const
 	{
 		uint32 leftDepth	= left != nullptr ? left->getHeight(depth + 1) : 0;
 		uint32 rightDepth	= right != nullptr ? right->getHeight(depth + 1) : 0;
@@ -265,7 +266,7 @@ public:
 
 		// Get actual successor
 		if (left != nullptr && right != nullptr)
-			moveOrCopy(data, (succ = right->getMin())->data);
+			data = move((succ = right->getMin())->data);
 		
 		// Remove left or right child of successor
 		BinaryNode * repl = nullptr;
@@ -546,7 +547,7 @@ protected:
 			parent->setRightChild(left);
 
 		// Set left-right as my left child
-		BinaryNode* prevLeft = left;
+		BinaryNode * prevLeft = left;
 		setLeftChild(left->right);
 		
 		// Set me as right child
@@ -578,27 +579,33 @@ using BinaryNodeRef = BinaryNode<T, CompareT>*;
 //////////////////////////////////////////////////
 
 /// Forward declare iterator types
-template<typename> struct NodeIterator;
-template<typename> struct TreeIterator;
+template<typename, typename> struct NodeIterator;
+template<typename, typename> struct TreeIterator;
 
 /**
  * @struct TreeIterator
  * 
  * Walks the tree using the next node link
  */
-template<typename U>
+template<typename T, typename CompareT = Compare<T>>
 struct TreeIterator
 {
 	template<typename, typename, typename> friend class BinaryTree;
-	
+
+public:
+	/// Node type @{
+	using Node		= BinaryNode<T, CompareT>;
+	using NodeRef	= BinaryNodeRef<T, CompareT>;
+	/// @}
+
 private:
 	/// Current node
-	BinaryNodeRef<U> node;
+	NodeRef node;
 
 public:
 	/// Default constructor
-	FORCE_INLINE TreeIterator(BinaryNodeRef<U> _node = nullptr)
-		: node(_node) {}
+	FORCE_INLINE TreeIterator(NodeRef _node = nullptr)
+		: node{_node} {}
 	
 	/// Increments iterator
 	/// @{
@@ -636,14 +643,14 @@ public:
 
 	/// Iterators comparison
 	/// @{
-	FORCE_INLINE bool operator==(const TreeIterator<U> & other) const { return node == other.node; }
-	FORCE_INLINE bool operator!=(const TreeIterator<U> & other) const { return node != other.node; }
+	FORCE_INLINE bool operator==(const TreeIterator & other) const { return node == other.node; }
+	FORCE_INLINE bool operator!=(const TreeIterator & other) const { return node != other.node; }
 	/// @}
 
 	/// Dereferences iterator
 	/// @{
-	FORCE_INLINE U & operator* () const { return node->data; };
-	FORCE_INLINE U * operator->() const { return &(node->data); };
+	FORCE_INLINE T & operator* () const { return node->data; };
+	FORCE_INLINE T * operator->() const { return &(node->data); };
 	/// @}
 };
 
@@ -654,36 +661,43 @@ public:
  * down to the tree leaves using the provided
  * key as a mean to choose next subtree
  */
-template<typename U>
+template<typename T, typename CompareT = Compare<T>>
 struct GCC_ALIGN(32) NodeIterator
 {
 	template<typename, typename, typename> friend class BinaryTree;
 
+public:
+	/// Node type @{
+	using Node		= BinaryNode<T, CompareT>;
+	using NodeRef	= BinaryNodeRef<T, CompareT>;
+	/// @}
+
 private:
 	/// Current node
-	BinaryNodeRef<U> node;
+	NodeRef node;
 
 	/// Search value
-	U search;
+	T search;
 
 private:
 	/// Default constructor, private
-	NodeIterator() :
-		node(nullptr),
-		search() {}
+	NodeIterator()
+		: node{nullptr}
+		, search{} {}
 	
+public:
 	/// Initialize iterator with search value and node
-	NodeIterator(typename ConstRef<U>::Type _search, BinaryNodeRef<U> _node)
+	template<typename _T = T>
+	NodeIterator(_T && _search, NodeRef _node)
 		: node(_node)
-		, search(_search)
+		, search(forward<_T>(_search))
 	{
 		// Find first node
 		if (node) node = node->find(search);
 	}
 
-public:
 	/// Increment iterator
-	FORCE_INLINE NodeIterator<U> & operator++()
+	FORCE_INLINE NodeIterator & operator++()
 	{
 		if (node = node->right)
 			node = node->find(search);
@@ -693,36 +707,20 @@ public:
 
 	/// Iterator comparison
 	/// @{
-	FORCE_INLINE bool operator==(const NodeIterator<U> & other) const { return node == other.node; }
-	FORCE_INLINE bool operator!=(const NodeIterator<U> & other) const { return node != other.node; }
+	FORCE_INLINE bool operator==(const NodeIterator & other) const { return node == other.node; }
+	FORCE_INLINE bool operator!=(const NodeIterator & other) const { return node != other.node; }
 	/// @}
 
 	/// Access Node data
 	/// @{
-	FORCE_INLINE U & operator* () const { return node->data; };
-	FORCE_INLINE U * operator->() const { return &(node->data); };
+	FORCE_INLINE T & operator* () const { return node->data; };
+	FORCE_INLINE T * operator->() const { return &(node->data); };
 	/// @}
 
-	/// Remove node and move to next
-	/// ! This method is not safe, for we have no knowledge of the tree root node
-	/// ! Use Tree::remove method
-	FORCE_INLINE NodeIterator<U> & remove()
-	{
-		if (LIKELY(node != nullptr))
-		{
-			// Advance iterator
-			auto removed = node;
-			operator++();
-
-			// Remove node
-			removed->remove();
-		}
-	}
-
 	/// Convert to tree iterator
-	FORCE_INLINE operator TreeIterator<U>() const
+	FORCE_INLINE operator TreeIterator<T>() const
 	{
-		return TreeIterator<U>(node);
+		return TreeIterator<T>(node);
 	}
 };
 
@@ -735,6 +733,10 @@ public:
  * 
  * A templated red-black tree.
  * @see BinaryNode
+ * 
+ * @param T data type
+ * @param CompareT comparison class
+ * @param AllocT allocator class
  */
 template<typename T, typename CompareT = Compare<T>, typename AllocT = MallocAnsi>
 class GCC_ALIGN(32) BinaryTree
@@ -743,23 +745,24 @@ class GCC_ALIGN(32) BinaryTree
 	template<typename, typename, typename, typename>	friend class Map;
 
 public:
-	/// Node type
+	/// Node type @{
 	using Node		= BinaryNode<T, CompareT>;
 	using NodeRef	= BinaryNodeRef<T, CompareT>;
+	/// @}
 
-	/// Define iterator types
-	/// @{
-	using Iterator		= NodeIterator<T>;
-	using ConstIterator	= NodeIterator<const T>;
+	/// Iterator types @{
+	using Iterator		= NodeIterator<T, CompareT>;
+	using ConstIterator	= NodeIterator<const T, CompareT>;
 
-	using TreeIterator		= ::TreeIterator<T>;
-	using ConstTreeIterator	= ::TreeIterator<const T>;
+	using TreeIterator		= ::TreeIterator<T, CompareT>;
+	using ConstTreeIterator	= ::TreeIterator<const T, CompareT>;
 	/// @}
 
 protected:
-	/// Allocator used to allocate new nodes
+	/// Allocator used to allocate new nodes @{
 	AllocT * allocator;
 	bool bHasOwnAllocator;
+	/// @}
 
 	/// Root node
 	NodeRef root;
@@ -769,11 +772,11 @@ protected:
 
 public:
 	/// Default constructor
-	FORCE_INLINE BinaryTree(AllocT * _allocator = reinterpret_cast<AllocT*>(gMalloc)) :
-		allocator(_allocator),
-		bHasOwnAllocator(_allocator == nullptr),
-		root(nullptr),
-		numNodes(0)
+	FORCE_INLINE BinaryTree(AllocT * _allocator = reinterpret_cast<AllocT*>(gMalloc))
+		: allocator{_allocator}
+		, bHasOwnAllocator{_allocator == nullptr}
+		, root{nullptr}
+		, numNodes{0ull}
 	{
 		// Create own allocator
 		if (bHasOwnAllocator)
@@ -782,25 +785,26 @@ public:
 
 protected:
 	/// Create a new node using the class allocator
-	FORCE_INLINE NodeRef createNode(typename ConstRef<T>::Type data)
+	template<typename _T = T>
+	FORCE_INLINE NodeRef createNode(_T && data)
 	{
-		return new (reinterpret_cast<NodeRef>(allocator->malloc(sizeof(Node)))) Node(data);
+		return new (reinterpret_cast<NodeRef>(allocator->malloc(sizeof(Node)))) Node(forward<_T>(data));
 	}
 
 	/// Recursively replicate structure of another tree
 	template<typename U>
-	void replicateStructure(NodeRef replica, BinaryNodeRef<U> original)
+	void replicate(NodeRef replica, BinaryNodeRef<U> original)
 	{
 		// Create left
 		if (original->left)
 		{
 			if (replica->left)
 				// Don't recreate node
-				moveOrCopy(replica->left->data, original->left->data);
+				replica->left->data = original->left->data;
 			else
 				replica->setLeftChild(createNode(original->left->data));
 			
-			replicateStructure(replica->left, original->left);
+			replicate(replica->left, original->left);
 		}
 		else if (replica->left)
 			// Remove unused nodes
@@ -811,11 +815,11 @@ protected:
 		{
 			if (replica->right)
 				// Don't recreate node
-				moveOrCopy(replica->right->data, original->right->data);
+				replica->right->data = original->right->data;
 			else
 				replica->setRightChild(createNode(original->right->data));
 			
-			replicateStructure(replica->right, original->right);
+			replicate(replica->right, original->right);
 		}
 		else if (replica->right)
 			// Remove unused nodes
@@ -824,50 +828,54 @@ protected:
 
 public:
 	/// Copy constructor
-	FORCE_INLINE BinaryTree(const BinaryTree<T, AllocT> & other) : BinaryTree(nullptr)
+	FORCE_INLINE BinaryTree(const BinaryTree & other)
+		: BinaryTree(nullptr)
 	{
 		if (other.root)
 			// Copy the tree structure as-is
-			replicateStructure(root = createNode(other.root->data), other.root);
+			replicate(root = createNode(other.root->data), other.root);
 		
 		numNodes = other.numNodes;
 	}
 
 	/// Copy constructor (different allocator)
 	template<typename AllocU>
-	FORCE_INLINE BinaryTree(const BinaryTree<T, AllocU> & other) : BinaryTree(nullptr)
+	FORCE_INLINE BinaryTree(const BinaryTree<T, AllocU> & other)
+		: BinaryTree(nullptr)
 	{
 		if (other.root)
 			// Copy the tree structure as-is
-			replicateStructure(root = createNode(other.root->data), other.root);
+			replicate(root = createNode(other.root->data), other.root);
 		
 		numNodes = other.numNodes;
 	}
 
 	/// Move constructor
-	FORCE_INLINE BinaryTree(BinaryTree<T, AllocT> && other) :
-		allocator(other.allocator),
-		bHasOwnAllocator(other.bHasOwnAllocator),
-		root(other.root),
-		numNodes(other.numNodes)
+	FORCE_INLINE BinaryTree(BinaryTree && other)
+		: allocator{other.allocator}
+		, bHasOwnAllocator{other.bHasOwnAllocator}
+		, root{other.root}
+		, numNodes{other.numNodes}
 	{
+		allocator = nullptr;
 		other.bHasOwnAllocator = false;
 		other.root = nullptr;
+		other.numNodes = 0;
 	}
 
 	/// Copy assignment
-	FORCE_INLINE BinaryTree<T, AllocT> & operator=(const BinaryTree<T, AllocT> & other)
+	FORCE_INLINE BinaryTree & operator=(const BinaryTree & other)
 	{
 		// Copy the tree structure as-is
 		if (other.root)
 		{
 			if (root)
 			{
-				moveOrCopy(root->data, other.root->data);
-				replicateStructure(root, other.root);
+				root->data = other.root->data;
+				replicate(root, other.root);
 			}
 			else
-				replicateStructure(root = createNode(other.root->data), other.root);
+				replicate(root = createNode(other.root->data), other.root);
 		}
 		
 		numNodes = other.numNodes;
@@ -875,40 +883,61 @@ public:
 
 	/// Copy assignment (different allocator)
 	template<typename AllocU>
-	FORCE_INLINE BinaryTree<T, AllocT> & operator=(const BinaryTree<T, AllocU> & other)
+	FORCE_INLINE BinaryTree & operator=(const BinaryTree<T, AllocU> & other)
 	{
 		// Copy the tree structure as-is
 		if (other.root)
 		{
 			if (root)
 			{
-				moveOrCopy(root->data, other.root->data);
-				replicateStructure(root, other.root);
+				root->data = other.root->data;
+				replicate(root, other.root);
 			}
 			else
-				replicateStructure(root = createNode(other.root->data), other.root);
+				replicate(root = createNode(other.root->data), other.root);
 		}
 		
 		numNodes = other.numNodes;
 	}
 
 	/// Move assignment
-	FORCE_INLINE BinaryTree<T, AllocT> & operator=(BinaryTree<T, AllocT> && other)
+	FORCE_INLINE BinaryTree & operator=(BinaryTree && other)
 	{
 		allocator			= other.allocator;
 		bHasOwnAllocator	= other.bHasOwnAllocator;
 		root				= other.root;
 		numNodes			= other.numNodes;
 
+		other.allocator			= nullptr;
 		other.bHasOwnAllocator	= false;
 		other.root				= nullptr;
 	}
 
+protected:
+	/// Destroy a subtree spawning from this node
+	void destroySubtree(NodeRef node)
+	{
+		if (node)
+		{
+			NodeRef
+				left	= node->left,
+				right	= node->right;
+			
+			// Dealloc and destroy node
+			node->~Node();
+			allocator->free(node);
+
+			// Depth first
+			destroySubtree(left), destroySubtree(right);
+		}
+	}
+
+public:
 	/// Destructor
 	FORCE_INLINE ~BinaryTree()
 	{
 		// Empty tree
-		empty(root);
+		destroySubtree(root);
 
 		// Delete own allocator
 		if (bHasOwnAllocator)
@@ -917,10 +946,7 @@ public:
 
 public:
 	/// Get number of nodes
-	/// @{
-	FORCE_INLINE uint64 getSize() const { return numNodes; }
 	FORCE_INLINE uint64 getCount() const { return numNodes; }
-	/// @}
 
 	/// Get leftmost node
 	/// @{
@@ -935,14 +961,15 @@ public:
 	/// @}
 
 	/**
-	 * Find node matching search
+	 * Find node that matches search key
 	 * 
 	 * @param [in] search search operand
 	 * @return node iterator
 	 */
-	FORCE_INLINE Iterator find(typename ConstRef<T>::Type search) const
+	template<typename _T = T>
+	FORCE_INLINE Iterator find(_T && search) const
 	{
-		return Iterator(search, root);
+		return Iterator(forward<_T>(search), root);
 	}
 
 	/// Returns an iterator that matches end of search (nil leaf)
@@ -964,12 +991,14 @@ public:
 	 * Insert a new node with the provided data
 	 * 
 	 * @param [in] data data to insert in node
+	 * @{
 	 */
-	T & insert(typename ConstRef<T>::Type data)
+	template<typename _T = T>
+	T & insert(_T && data)
 	{
 		if (LIKELY(root != nullptr))
 		{
-			NodeRef node = root->insert(createNode(data));
+			NodeRef node = root->insert(createNode(forward<_T>(data)));
 			++numNodes;
 			
 			root = root->getRoot();
@@ -978,7 +1007,7 @@ public:
 		}
 		else
 		{
-			root = createNode(data);
+			root = createNode(forward<_T>(data));
 			root->color = Node::NodeColor::BLACK;
 			numNodes = 1;
 
@@ -991,11 +1020,12 @@ public:
 	 * 
 	 * @param [in] data data to insert in node
 	 */
-	T & insertUnique(typename ConstRef<T>::Type data)
+	template<typename _T = T>
+	T & insertUnique(_T && data)
 	{
 		if (LIKELY(root != nullptr))
 		{
-			NodeRef node		= createNode(data);
+			NodeRef node		= createNode(forward<_T>(data));
 			NodeRef actualNode	= root->insertUnique(node);
 
 			if (node == actualNode)
@@ -1010,7 +1040,7 @@ public:
 		}
 		else
 		{
-			root = createNode(data);
+			root = createNode(forward<_T>(data));
 			root->color = Node::NodeColor::BLACK;
 			numNodes = 1;
 
@@ -1019,76 +1049,52 @@ public:
 	}
 
 	/**
-	 * Remove node with key search
+	 * Remove node from tree
 	 * 
 	 * * The iterator version is to preferred
 	 * 
-	 * @param [in] search key search
-	 * @param [in] it iterator
+	 * @param [in] node node to remove
+	 * @param [in] key node key
+	 * @param [in] it tree/linear iterator
 	 * @return removed node
 	 * @{
 	 */
 	void remove(NodeRef node)
 	{
-		if (node)
-		{
-			NodeRef evicted = node->remove();
-			--numNodes;
 
-			// Update root
-			if (evicted == root)
-				root = root->right;
-			else
-				root = root->getRoot();
+		NodeRef evicted = node->remove();
+		--numNodes;
 
-			// Dealloc evicted nodeù
-			evicted->data.~T();
-			allocator->free(evicted);
-		}
+		// Update root
+		if (evicted == root)
+			root = root->left ? root->left : root->right;
+		else
+			root = root->getRoot();
+
+		// Dealloc evicted node
+		evicted->~Node();
+		allocator->free(evicted);
 	}
-	FORCE_INLINE void remove(typename ConstRef<T>::Type search)
+	FORCE_INLINE void remove(typename ConstRef<T>::Type key)
 	{
-		if (LIKELY(root))
-			// Find and remove
-			remove(root->find(search));
+		if (LIKELY(root)) remove(root->find(key));
 	}
-	FORCE_INLINE void remove(ConstIterator it)
+	template<typename It>
+	FORCE_INLINE typename EnableIf<
+									   IsSameType<It, Iterator>::value
+									|| IsSameType<It, ConstIterator>::value
+									|| IsSameType<It, TreeIterator>::value
+									|| IsSameType<It, ConstTreeIterator>::value,
+	void>::Type remove(It it)
 	{
-		remove(it.node);
-	}
-	FORCE_INLINE void remove(Iterator it)
-	{
-		remove(it.node);
-	}
-	FORCE_INLINE void remove(TreeIterator it)
-	{
-		remove(it.node);
-	}
-	FORCE_INLINE void remove(ConstTreeIterator it)
-	{
-		remove(it.node);
+		if (it.node) remove(it.node);
 	}
 	/// @}
 
 	/// Recursively removes all nodes of the tree
-	/// @{
-	FORCE_INLINE void empty() { return empty(root); }
-
-protected:
-	void empty(NodeRef node)
+	FORCE_INLINE void empty()
 	{
-		if (node)
-		{
-			NodeRef
-				left	= node->left,
-				right	= node->right;
-			
-			// Dealloc node
-			allocator->free(node);
-
-			// Depth first
-			empty(left), empty(right);
-		}
+		return destroySubtree(root);
 	}
 	///@}
 };

@@ -25,14 +25,16 @@ class GCC_ALIGN(32) MallocPool : public Malloc
 
 protected:
 	/// Memory pool
+	/// @{
 	void * pool;
 	bool bHasOwnBuffer;
-
-	/// Pool end address
-	void * end;
+	/// @}
 
 	/// Head of free list
 	void * head;
+
+	/// Pool tail address
+	void * tail;
 
 	/// Size of a single block in Bytes
 	sizet blockSize;
@@ -78,7 +80,8 @@ public:
 	/// Default constructor
 	MallocPool(uint64 _numBlocks = 65536, sizet _blockSize = 64/* Bytes */, sizet blockAlignment = 0x20, void * buffer = nullptr);
 
-	/// TODO: Make it non-copyable
+	/// Move constructor
+	MallocPool(MallocPool && other);
 
 	/// Destructor
 	FORCE_INLINE ~MallocPool()
@@ -91,7 +94,7 @@ public:
 	FORCE_INLINE uint64 getNumFreeBlock() const { return numFreeBlocks; }
 
 	/// Returns true if block was allocated by this allocator
-	FORCE_INLINE bool hasBlock(void * original) const { return original > pool && original < end; }
+	FORCE_INLINE bool hasBlock(void * original) const { return original > pool && original < tail; }
 
 	//////////////////////////////////////////////////
 	// Malloc interface

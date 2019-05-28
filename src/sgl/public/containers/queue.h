@@ -2,7 +2,7 @@
 
 #include "core_types.h"
 #include "hal/platform_memory.h"
-#include "templates/const_ref.h"
+#include "templates/reference.h"
 #include "templates/is_trivially_copyable.h"
 
 /**
@@ -294,6 +294,9 @@ public:
 			// Destroy link
 			allocator->free(it);
 		}
+
+		// Reset num clients
+		numClients = 0;
 
 		// Make sure last is null as well
 		first = last = nullptr;

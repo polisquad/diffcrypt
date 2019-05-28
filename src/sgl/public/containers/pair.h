@@ -1,9 +1,9 @@
 #pragma once
 
 #include "core_types.h"
-#include "templates/const_ref.h"
+#include "templates/reference.h"
 #include "templates/functional.h"
-#include "templates/same_type.h"
+#include "templates/is_same_type.h"
 
 /**
  * @class Pair containers/pair.h
@@ -21,10 +21,22 @@ public:
 	B second;
 
 public:
+	/// Default constructor
+	FORCE_INLINE Pair() = default;
+
 	/// Pair constructor
-	FORCE_INLINE Pair(typename ConstRef<A>::Type _first = A(), typename ConstRef<B>::Type _second = B()) :
-		first(_first),
-		second(_second) {}
+	template<typename _A = A, typename _B = B>
+	FORCE_INLINE Pair(_A && _first, _B && _second)
+		: first{forward<A>(_first)}
+		, second{forward<B>(_second)} {}
+	
+	/// Key copy constructor
+	FORCE_INLINE Pair(const A & _first)
+		: first{_first} {}
+	
+	/// Key move constructor
+	FORCE_INLINE Pair(A && _first)
+		: first{move(_first)} {}
 
 	/// Equality operators
 	/// @{
@@ -43,13 +55,13 @@ public:
 	/// Key comparison, pairs with different compare methods
 	/// @{
 	template<typename CompareU>
-	FORCE_INLINE typename EnableIf<!SameType<CompareT, CompareU>::value, bool>::Type operator< (const Pair<A, B, CompareU> & other) { return CompareT()(first, other.first) < 0; }
+	FORCE_INLINE typename EnableIf<!IsSameType<CompareT, CompareU>::value, bool>::Type operator< (const Pair<A, B, CompareU> & other) { return CompareT()(first, other.first) < 0; }
 	template<typename CompareU>
-	FORCE_INLINE typename EnableIf<!SameType<CompareT, CompareU>::value, bool>::Type operator> (const Pair<A, B, CompareU> & other) { return CompareT()(first, other.first) > 0; }
+	FORCE_INLINE typename EnableIf<!IsSameType<CompareT, CompareU>::value, bool>::Type operator> (const Pair<A, B, CompareU> & other) { return CompareT()(first, other.first) > 0; }
 	template<typename CompareU>
-	FORCE_INLINE typename EnableIf<!SameType<CompareT, CompareU>::value, bool>::Type operator<=(const Pair<A, B, CompareU> & other) { return CompareT()(first, other.first) <= 0; }
+	FORCE_INLINE typename EnableIf<!IsSameType<CompareT, CompareU>::value, bool>::Type operator<=(const Pair<A, B, CompareU> & other) { return CompareT()(first, other.first) <= 0; }
 	template<typename CompareU>
-	FORCE_INLINE typename EnableIf<!SameType<CompareT, CompareU>::value, bool>::Type operator>=(const Pair<A, B, CompareU> & other) { return CompareT()(first, other.first) >= 0; }
+	FORCE_INLINE typename EnableIf<!IsSameType<CompareT, CompareU>::value, bool>::Type operator>=(const Pair<A, B, CompareU> & other) { return CompareT()(first, other.first) >= 0; }
 	/// @}
 };
 

@@ -2,7 +2,7 @@
 
 #include "core_types.h"
 #include "hal/platform_atomics.h"
-#include "signed.h"
+#include "is_integral.h"
 #include "is_trivial.h"
 
 /**
@@ -83,7 +83,7 @@ public:
 	 * @{
 	 */
 	FORCE_INLINE T operator+=(DiffT val) { return PlatformAtomics::add(&this->obj, val); }
-	FORCE_INLINE T operator-=(DiffT val) { return PlatformAtomics::add(&this->obj, - (SignedT(T))val); }
+	FORCE_INLINE T operator-=(DiffT val) { return PlatformAtomics::add(&this->obj, - (typename AddSign<T>::Type)val); }
 
 protected:
 	/// @brief Default constructor, default
@@ -105,7 +105,7 @@ template<typename T, bool bIsIntegral> struct AtomicType { using Type = BaseAtom
 template<typename T> struct AtomicType<T, true> { using Type = IntegralAtomic<T>; };
 template<typename T> struct AtomicType<T*, false> { using Type = PointerAtomic<T>; };
 
-template<typename T> using AtomicT = typename AtomicType<T, IsIntegralV(T)>::Type;
+template<typename T> using AtomicT = typename AtomicType<T, IsIntegral<T>::value>::Type;
 /// @}
 
 /**
@@ -116,7 +116,7 @@ template<typename T>
 class Atomic : public AtomicT<T>
 {
 	// Only with trivial types
-	static_assert(IsTrivialV(T), "Atomic only works for trivial types");
+	static_assert(IsTrivial<T>::value, "Atomic only works for trivial types");
 
 public:
 	/// @brief Default constructor, default

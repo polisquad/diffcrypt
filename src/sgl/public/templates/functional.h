@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core_types.h"
-#include "const_ref.h"
+#include "reference.h"
 
 /**
  * @class Compare templates/functional.h
@@ -16,7 +16,7 @@ struct Compare
 	 * Requires operator< and operator> to be defined for both types
 	 * 
 	 * @param [in] a,b operands to compare
-	 * @return 1 if a > b, -1 if a < b, 0 otherwise
+	 * @return -1, 0 or 1
 	 */
 	FORCE_INLINE int32 operator()(typename ConstRef<A>::Type a, typename ConstRef<B>::Type b) const
 	{

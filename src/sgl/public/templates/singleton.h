@@ -2,51 +2,50 @@
 
 #include "core_types.h"
 
-#include <cassert>
-
 /**
  * @class Singletong templates/singleton.h
- * @brief Defines a singleton with methods to access it
+ * Defines a singleton with methods to access it
  */
 template<class T>
 class Singleton
 {
-public:
-	/// @brief Default-constructor
-	FORCE_INLINE Singleton() = default;
+protected:
+	/// Global singleton instance
+	static T * instance;
 
-	/// @brief Copy-constructor, removed
+public:
+	/// Default constructor
+	FORCE_INLINE Singleton()
+	{
+		instance = reinterpret_cast<T*>(this);
+	}
+
+	/// Deleted copy constructor
 	Singleton(const Singleton & s) = delete;
 
-	/// @brief Assignment-operator, removed
+	/// Deleted copy assignment
 	Singleton & operator=(const Singleton & s) = delete;
 
 	/**
-	 * @brief Get instance reference
+	 * Get instance reference
 	 * 
 	 * @return Reference to instance
 	 */
-	static FORCE_INLINE T & get();
+	static FORCE_INLINE T & get()
+	{
+		return *instance;
+	}
 
 	/**
-	 * @brief Get instance pointer
+	 * Get instance pointer
 	 * 
 	 * @return Pointer to instance
 	 */
-	static FORCE_INLINE T * getPtr();
+	static FORCE_INLINE T * getPtr()
+	{
+		return instance;
+	}
 };
 
-template<class T>
-T & Singleton<T>::get()
-{
-	// Return global instance
-	static T instance;
-	return instance;
-}
-
-template<class T>
-T * Singleton<T>::getPtr()
-{
-	return &get();
-}
-
+template<typename T>
+T * Singleton<T>::instance = nullptr;

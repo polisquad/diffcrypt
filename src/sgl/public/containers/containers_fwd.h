@@ -5,7 +5,7 @@
 template<typename, typename>						class Array;
 template<typename, typename, typename>				class BinaryTree;
 template<typename, typename, typename>				class HashMap;
-template<typename, typename>						class LinkedList;
+template<typename, typename>						class List;
 template<typename, typename, typename, typename>	class Map;
 template<typename, typename, typename>				class Pair;
 template<typename, typename>						class Queue;

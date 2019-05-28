@@ -3,7 +3,7 @@
 #include "core_types.h"
 #include <string.h>
 #include "templates/enable_if.h"
-#include "templates/is_pointer.h"
+#include "templates/pointer.h"
 
 /**
  * @struct GenericPlatformMemory generic/generic_platform_memory.h
@@ -20,7 +20,7 @@ struct GenericPlatformMemory
 	static FORCE_INLINE T align(T ptr, sizet alignment)
 	{
 		// T must be a pointer type
-		static_assert(IsPointerV(T), "Cannot align non-pointer type");
+		static_assert(IsPointer<T>::value, "Cannot align non-pointer type");
 
 		// Cast to integer to ease arithmetic operations
 		sizet original = reinterpret_cast<sizet>(ptr);

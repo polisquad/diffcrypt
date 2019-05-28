@@ -2,7 +2,7 @@
 
 #include "core_types.h"
 #include "containers.h"
-#include "templates/const_ref.h"
+#include "templates/reference.h"
 #include "templates/is_trivially_copyable.h"
 #include "templates/functional.h"
 
@@ -73,10 +73,10 @@ namespace Container
 			// First deep copy container, O(n)
 			A i; B j;
 			for (i = begin, j = dest; i != end; ++i, ++j)
-				moveOrCopy(*j, *i);
+				*j = *i;
 			
 			// Then sort destination container
-			sort<CompareT, B>(dest, j, (CompareT&&)cmpfun);
+			sort<CompareT, B>(dest, j, forward<CompareT>(cmpfun));
 		}
 	};
 
@@ -90,7 +90,7 @@ namespace Container
 	template<SortingAlg alg = QUICKSORT, typename CompareT, typename It>
 	FORCE_INLINE void sort(It begin, It end, CompareT && cmpfun)
 	{
-		SortingClass<alg>::template sort<CompareT, It>(begin, end, (CompareT&&)cmpfun);
+		SortingClass<alg>::template sort<CompareT, It>(begin, end, forward<CompareT>(cmpfun));
 	}
 	template<SortingAlg alg = QUICKSORT, typename It>
 	FORCE_INLINE void sort(It begin, It end)
@@ -110,7 +110,7 @@ namespace Container
 	template<SortingAlg alg = QUICKSORT, typename CompareT, typename A, typename B>
 	FORCE_INLINE void sort(A begin, A end, B dest, CompareT && cmpfun)
 	{
-		SortingClass<alg>::template sort<CompareT, A, B>(begin, end, dest, (CompareT&&)cmpfun);
+		SortingClass<alg>::template sort<CompareT, A, B>(begin, end, dest, forward<CompareT>(cmpfun));
 	}
 	// Not usable unless we use an iterator base class or sfinae out the conflicting declaration
 	/* template<SortingAlg alg = QUICKSORT, typename CompareT, typename A, typename B>

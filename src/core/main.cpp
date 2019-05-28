@@ -1,7 +1,6 @@
 #include "coremin.h"
 #include "math/math.h"
 #include "containers/sorting.h"
-#include "bitarray.h"
 
 const uint32 numRounds = 6;
 
@@ -41,6 +40,16 @@ const uint32 perm[] = {
 	31, 26, 2, 8,
 	18, 12, 29, 5,
 	21, 10, 3, 24
+};
+const uint32 invPerm[] = {
+	8, 16, 22, 30,
+	12, 27, 1, 17,
+	23, 15, 29, 5,
+	25, 19, 9, 0,
+	7, 13, 24, 2,
+	3, 28, 10, 18,
+	31, 11, 21, 6,
+	4, 26, 14, 20
 };
 const uint32 subs[8][64] = {
 	{
@@ -649,317 +658,393 @@ const ubyte dL[24][9] = {
 	"\x00\x00\x00\x00\x00\x01\x01\x00"
 };
 
-struct Node
+#include "containers/bitarray.h"
+
+struct DesParams
 {
-public:
-	/// Representation of an sbox along a path
-	struct Path
-	{
-	public:
-		/// Right block
-		BitArray dr;
+	/// Number of rounds
+	uint32 numRounds;
 
-		/// Left block
-		BitArray dl;
-
-		/// Sbox output (determines path)
-		BitArray dy;
-
-		/// Path estimated value
-		float32 v;
-	};
-
-public:
-	/// Path that leads to this node
-	Array<Path> paths;
-
-	/// Path cost
-	float32 g;
-
-	/// Heuristics
-	float32 h;
-
-public:
-	/// Comparison operators (required by @ref BinaryTree)
-	/// @{
-	FORCE_INLINE bool operator<(const Node & other) const
-	{
-		return (g + h) < (other.g + other.h);
-	}
-	FORCE_INLINE bool operator>(const Node & other) const
-	{
-		return (g + h) > (other.g + other.h);
-	}
+	/// Initial and final permutations @{
+	const uint32 * ip;
+	const uint32 * fp;
 	/// @}
 
+	/// Expansion table
+	const uint32 * xpn;
+
+	/// Permutation table
+	const uint32 * perm;
+
+	/// Sbox tables @{
+	const uint32 * subs[8];
+	const uint32 * difs[8];
+	/// @}
+};
+
+struct RoundInstance
+{
+	/// Right bitarray
+	BitArray dr;
+
+	/// Left bitarray
+	BitArray dl;
+
+	/// Sbox output
+	BitArray dy;
+};
+
+struct RoundNode
+{
+	/// Instance of this round
+	RoundInstance instance;
+
+	/// Round differential probability
+	float32 p;
+
+	/// Current round
+	uint32 round;
+
+	/// Des parameters
+	DesParams * params;
+
+public:
 	/**
-	 * Initialize node with input plaintext
-	 * ! Initial permutation missing
+	 * Init with plaintext
 	 * 
-	 * @param ptx initial plaintext
-	 * @param ip initial permutation table
-	 * @param xpns expansion box table
+	 * @param [in] ptx plaintext bitarray
 	 */
-	void init(const BitArray & ptx, const uint32 ip[], const uint32 xpn[])
+	void init(const BitArray & ptx)
 	{
-		Path input{
-			BitArray(32), // dr
-			BitArray((const ubyte[]){0x0, 0x0, 0x0, 0x0}, 32), // dl
-			BitArray(32), // dy
-			0.f
-		};
-		BitArray u(64);
+		// Set differentials
+		instance.dr = BitArray(32);
+		instance.dl = BitArray(32);
 
-		// Apply initial permutation
-		ptx.permute(u, ip);
-		input.dr = u.slice(32);
+		ptx.permute(instance.dr, params->ip);
+		ptx.permute(instance.dl, params->ip + 32);
 
-		// Add input path
-		paths.add(input);
-
-		g = 0.f;
+		// Set probability and round
+		p = 1.f, round = 1;
 	}
 
+	//////////////////////////////////////////////////
+	// Monte carlo interface
+	//////////////////////////////////////////////////
+	
+	/// Returns round score (logarithmic differential probability)
+	FORCE_INLINE float32 getScore()
+	{
+		return log2(p);
+	}
+
+protected:
 	/**
-	 * Recompute node heuristics
+	 * Expand node internal
 	 * 
-	 * @param [in] diffs diff tables
+	 * @param [out] out out list of expanded nodes
+	 * @param [in] dx,dy input and output of sbox
+	 * @param [in] params des parameters
+	 * @param [in] s sbox index
 	 */
-	void computeH(const uint32 xpn[], const uint32 * diffs[], uint32 numRounds)
+	void expand_internal(List<RoundNode> & out, const BitArray & dx, const BitArray & dy, float32 p0 = 1.f, uint32 s = 0) const
+	{
+		if (s < 8)
+		{
+			uint32 x = dx(s * 6, (s + 1) * 6);
+			if (x != 0)
+				// For each possible output
+				for (ubyte y = 0; y < 16; ++y)
+				{
+					const uint32 d = params->difs[s][(x << 4) + y];
+
+					if (d > 0)
+					{
+						const float32 p = d / 64.f;
+						const ubyte _y = y << 4;
+						expand_internal(out, dx, dy.merge(BitArray(&_y, 4)), p0 * p, s + 1);
+					}
+				}
+			else
+				expand_internal(out, dx, dy.merge(BitArray((const ubyte[]){0x0}, 4)), p0, s + 1);
+		}
+		else
+		{
+			// Compute next round node
+			BitArray u(32);
+			RoundNode nextRound{
+				instance : {
+					dr : dy.permute(u, params->perm) ^= instance.dl,
+					dl : instance.dr,
+					dy : dy
+				},
+				p : p0,
+				round : round + 1,
+				params : params
+			};
+
+			out.push(move(nextRound));
+		}
+	}
+
+public:
+	/// Expand this node
+	List<RoundNode> expand()
+	{
+		// Out list of expanded rounds
+		List<RoundNode> out;
+		
+		// Don't expand last round
+		if (round < params->numRounds - 2)
+		{
+			// Compute sbox input
+			BitArray dx(48), dy(0);
+
+			// Recursive expansion
+			expand_internal(out, instance.dr.permute(dx, params->xpn), dy);
+		}
+
+		printf("expanded nodes: %u\n", out.getCount());
+		return out;
+	}
+};
+
+class Path
+{
+protected:
+	/// Partial differential path
+	List<RoundInstance> rounds;
+
+	/// Cost
+	float32 g;
+
+	/// Heuristic value
+	float32 h;
+
+	/// Des parameters
+	const DesParams * params;
+
+public:
+	/// Default constructor
+	FORCE_INLINE Path(const DesParams * _params)
+		: rounds{}
+		, g{0.f}
+		, h{0.f}
+		, params{_params} {}
+	
+	/// Copy constructor
+	Path(const Path & other) = default;
+
+	/// Move constructor
+	Path(Path && other) = default;
+
+	/// Copy assignment
+	Path & operator=(const Path & other) = default;
+
+	/// Move assignment
+	Path & operator=(Path && other) = default;
+
+	/// Get total path cost
+	FORCE_INLINE float32 getTotalCost() const
+	{
+		return g + h;
+	}
+
+	/// Returns true if path is a complete path
+	FORCE_INLINE bool isComplete() const
+	{
+		return rounds.getCount() >= params->numRounds - 2;
+	}
+
+	/// Init path with des input (before initial permutation)
+	void init(const BitArray & ptx)
+	{
+		// Create first round from ptx
+		RoundInstance & inputRound = rounds.push(RoundInstance{
+			dr : BitArray(32),
+			dl : BitArray(32)
+		});
+
+		ptx.permute(inputRound.dr, params->ip);
+		ptx.permute(inputRound.dl, params->ip + 32);
+
+		// Init cost
+		g = 0.f;
+		computeH();
+	}
+
+	/// Compute node heuristics
+	void computeH()
 	{
 		// Out probability
 		float32 p = 1.f;
 
 		BitArray dx(48);
-		paths.getLast().dr.permute(dx, xpn);
+		rounds.last()->dr.permute(dx, params->xpn);
 
-		const int32 numLeftRounds = numRounds - paths.getCount() - 2;
-
+		const uint32 numLeftRounds = params->numRounds - rounds.getCount() - 2;
 		if (numLeftRounds)
 		{
 			// For each sbox
-			for (uint32 i = 0, r = 0; i < 8; ++i, r += 6)
+			for (uint32 i = 0; i < 8; ++i)
 			{
-				const uint32 * row = diffs[i] + ((dx(r, r + 6)) << 4);
+				const uint32 * row = params->difs[i] + (dx(i * 6, (i + 1) * 6) << 4);
 
 				// Find max probability
-				uint32 max = row[0]; for (uint32 j = 1; j < 16; ++j) max = row[j] > max ? row[j] : max;
+				uint32 max = row[0]; for (uint32 j = 1; j < 16; ++j) max = Math::max(max, row[j]);
 
 				// Update best probability
 				p *= max / 64.f;
 			}
 
-			for (int32 i = 0; i < numLeftRounds; ++i)
+			// Approx next rounds
+			for (uint32 i = 0; i < numLeftRounds - 1; ++i)
 				p *= 0.25f;
 		}
-		
+
 		h = -log2(p);
 	}
 
 protected:
-	/// Node internal expansion
-	void expand_internal(Array<Node> & out, uint32 i, const BitArray & dx, const BitArray & dy, float32 p, const uint32 xpn[], const uint32 perm[], const uint32 * diffs[]) const
+	/**
+	 * Expand node internal
+	 * 
+	 * @param [out] out out list of expanded nodes
+	 * @param [in] dx,dy input and output of sbox
+	 * @param [in] params des parameters
+	 * @param [in] s sbox index
+	 */
+	void expand_internal(List<Path> & out, const BitArray & dx, const BitArray & dy, float32 p0 = 1.f, uint32 s = 0) const
 	{
-		if (p == 0.f) return;
-
-		if (i < 8)
+		if (s < 8)
 		{
-			uint32 x = dx(i * 6, (i + 1) * 6);
+			uint32 x = dx(s * 6, (s + 1) * 6);
 			if (x != 0)
-				for (uint32 y = 0; y < 16; ++y)
+				// For each possible output
+				for (ubyte y = 0; y < 16; ++y)
 				{
-					const float32 sp = diffs[i][x * 16 + y] / 64.f;
-					ubyte _y = y << 4;
-					expand_internal(out, i + 1, dx, dy.merge(BitArray(&_y, 4)), p * sp, xpn, perm, diffs);
+					const uint32 d = params->difs[s][(x << 4) + y];
+
+					if (d > 0)
+					{
+						const float32 p = d / 64.f;
+						const ubyte _y = y << 4;
+						expand_internal(out, dx, dy.merge(BitArray(&_y, 4)), p0 * p, s + 1);
+					}
 				}
 			else
-				expand_internal(out, i + 1, dx, dy.merge(BitArray("\x00", 4)), p, xpn, perm, diffs);
+				expand_internal(out, dx, dy.merge(BitArray((const ubyte[]){0x0}, 4)), p0, s + 1);
 		}
 		else
 		{
-			// Push node with dy
-			Node n(*this);
-			
-			// Set dy for last path
-			auto & prev = n.paths.getLast();
-			prev.dy = dy;
+			// Copy path
+			Path path(*this);
 
-			// Create next path
-			Path next;
-			next.dl = prev.dr;
-			next.dr = BitArray(32);
-			next.dy = BitArray(32);
-			dy.permute(next.dr, perm) ^= prev.dl;
-			n.paths.add(next);
+			// Update current round
+			path.rounds.last()->dy = dy;
 
-			// Update g and h
-			n.g -= log2(p);
-			n.computeH(xpn, diffs, numRounds);
+			// Compute next round
+			BitArray u(32);
+			path.rounds.push(RoundInstance{
+				dr : dy.permute(u, params->perm) ^= path.rounds.last()->dl,
+				dl : path.rounds.last()->dr
+			});
 
-			// Add to output
-			out.push(n);
+			// Update path probability
+			path.g += -log2(p0);
+			path.computeH();
+
+			// Move into output list
+			out.push(move(path));
 		}
 	}
 
-public:	
-	/**
-	 * Expand node
-	 * 
-	 * @param [in] diffs differntial tables
-	 */
-	Array<Node> expand(const uint32 xpn[], const uint32 perm[], const uint32 * diffs[]) const
+public:
+	/// Expand node
+	FORCE_INLINE List<Path> expand()
 	{
-		Array<Node> out;
+		// Out list of expanded node
+		List<Path> out;
 
-		BitArray dx(48);
-		BitArray dy(0);
+		// Compute sbox input
+		const RoundInstance & lastRound = *rounds.last();		
+		BitArray dx(48), dy(0);
 
-		expand_internal(out, 0, paths.getLast().dr.permute(dx, xpn), dy, 1.f, xpn, perm, diffs);
+		// Recursive expansion
+		expand_internal(out, lastRound.dr.permute(dx, params->xpn), dy);
 
 		return out;
 	}
 };
 
-int main()
+int32 main()
 {
 	Memory::createGMalloc();
 
-	BinaryTree<Node> decisionTree;
-
-	//////////////////////////////////////////////////
-	// Initialization
-	//////////////////////////////////////////////////
-	const uint32 * _diffs[] = {
-		diffs[0], diffs[1], diffs[2], diffs[3],
-		diffs[4], diffs[5], diffs[6], diffs[7],
+	DesParams params{
+		numRounds : 6,
+		ip : ip,
+		fp : fp,
+		xpn : xpn,
+		perm : perm,
+		subs : {
+			subs[0], subs[1], subs[2], subs[3],
+			subs[4], subs[5], subs[6], subs[7]
+		},
+		difs : {
+			diffs[0], diffs[1], diffs[2], diffs[3],
+			diffs[4], diffs[5], diffs[6], diffs[7],
+		}
 	};
 
-	for (uint32 i = 0; i < 24; ++i)
+	class ComparePath
 	{
-		Node n;
-		n.init(BitArray(dL[i], 64), ip, xpn);
-		n.computeH(xpn, _diffs, numRounds);
-		decisionTree.insert(n);
+	public:
+		FORCE_INLINE int32 operator()(const Path & a, const Path & b) const
+		{
+			return Compare<float32>()(a.getTotalCost(), b.getTotalCost());
+		}
+	};
+	BinaryTree<Path, ComparePath, MallocBinned> paths(new MallocBinned);
+
+	//////////////////////////////////////////////////
+	// Init tree
+	//////////////////////////////////////////////////
+	
+	for (uint32 i = 0; i < sizeof(dL) / sizeof(*dL); ++i)
+	{
+		Path path(&params);
+		path.init(BitArray(dL[i], 64));
+		
+		paths.insert(move(path));
 	}
 
+	//////////////////////////////////////////////////
+	// Run search
+	//////////////////////////////////////////////////
+	
+	Path * bestPath;
 	for (;;)
 	{
-		auto it = decisionTree.begin();
-		if (it->paths.getCount() + 2 >= numRounds) break;
+		auto it = paths.begin();
+		printf("num nodes: %llu\n", paths.getCount());
+		printf("best path: %f {g = %f; h = %f}\n", it->getTotalCost());
 
-		for (auto & node : it->expand(xpn, perm, _diffs))
+		// Found a complete path with min cost
+		if (it->isComplete())
 		{
-			//printf("node cost: %f + %f = %f\n", node.g, node.h, node.g + node.h);
-			decisionTree.insert(node);
+			bestPath = new Path(*it);
+			break;
 		}
 
-		// Delete expanded node
-		decisionTree.remove(it);
+		// Expand best path
+		for (auto & path : it->expand())
+			paths.insert(move(path));
 
-		if (decisionTree.getCount() > 1U << 22)
-		{
-			const uint32 numDeleted = decisionTree.getCount() - (1U << 20);
-			auto it = decisionTree.last();
-			for (uint32 i = 0; i < numDeleted; ++i, --it)
-				decisionTree.remove(it);
-		}
-
-		printf("num nodes: %u\n", decisionTree.getCount());
-		printf("min cost:  %f,%f\n", decisionTree.begin()->g, decisionTree.begin()->h);
-		for (auto p : decisionTree.begin()->paths)
-			printf("  - dy: %08x / dr: %08x / dl: %08x\n", p.dy.getData<uint32>()[0], p.dr.getData<uint32>()[0], p.dl.getData<uint32>()[0]);
-
-		printf("\n");
-		//getc(stdin);
-	}
-	
-	auto & best = *decisionTree.begin();
-	const uint32 lastDR = best.paths.getLast().dr.getData<uint32>()[0];
-
-	const uint32 * _subs[] = {
-		subs[0], subs[1], subs[2], subs[3],
-		subs[4], subs[5], subs[6], subs[7]
-	};
-	
-	char key[] = "\x01\x23\x45\x67\x89\xab\xcd\xef";
-	char ptx[] = "CiaoSnep";
-
-	BitArray input(ptx, 64), output(64);
-	BitArray l, r;
-	BitArray u(32), v(32);
-	BitArray k0(key, 64), e(48);
-	BitArray k[16];
-
-	//////////////////////////////////////////////////
-	// Key schedule
-	//////////////////////////////////////////////////
-	
-	BitArray c(28), d(28);
-	const uint32 shifts[] = {1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1};
-	const uint32 kperm[] = {13, 16, 10, 23, 0, 4, 2, 27, 14, 5, 20, 9, 22, 18, 11, 3, 25, 7, 15, 6, 26, 19, 12, 1, 40, 51, 30, 36, 46, 54, 29, 39, 50, 44, 32, 47, 43, 48, 38, 55, 33, 52, 45, 41, 49, 35, 28, 31}; 
-
-	k0.permute(c, (const uint32[]){56, 48, 40, 32, 24, 16, 8, 0, 57, 49, 41, 33, 25, 17, 9, 1, 58, 50, 42, 34, 26, 18, 10, 2, 59, 51, 43, 35});
-	k0.permute(d, (const uint32[]){62, 54, 46, 38, 30, 22, 14, 6, 61, 55, 45, 37, 29, 21, 13, 5, 60, 52, 44, 36, 28, 20, 12, 4, 27, 19, 11, 3});
-
-	for (uint32 i = 0; i < 16; ++i)
-	{
-		new (k + i) BitArray(48);
-
-		c.rotateLeft(shifts[i]);
-		d.rotateLeft(shifts[i]);
-
-		c.merge(d).permute(k[i], kperm);
-	}
-
-	srand(clock());
-	
-	uint32 cnt = 0;
-	uint32 tot; for (tot = 0; tot < 1 << 24; ++tot)
-	{
-		uint64 q = uint64(rand()) | uint64(rand()) << 32;
-		BitArray ptxs[] = {
-			BitArray(&q, 64),
-			BitArray(&q, 64)
-		};
-		ptxs[1] ^= best.paths.getFirst().dr.merge(best.paths.getFirst().dl);
-		BitArray ctxs[2];
-
-		// Initial permutation
-		//input.permute(output, ip);
-
-		for (uint32 h = 0; h < 2; ++h)
-		{
-			BitArray & ptx = ptxs[h];
-
-			// Split in left and right blocks
-			l = ptx.slice(32), r = ptx.slice(32, 4);
-
-			for (uint32 i = 0; i < numRounds - 2; ++i)
-			{
-				// DES round
-				(r.permute(e, xpn) ^= k[i]).substitute<6, 4>(u, _subs, 8).permute(v, perm) ^= l;
-				l = r, r = v;
-			}
-
-			ctxs[h] = r;
-		}
+		// Remove expanded node
+		paths.remove(it);
 		
-		BitArray bar = ctxs[0] ^ ctxs[1];
-		const uint32 foo = bar.getData<uint32>()[0];
-		//printf("%08x == %08x (cnt: %u)\n", best.paths[1].dr.getData<uint32>()[0], foo, cnt);
-		cnt += (best.paths.getLast().dr.getData<uint32>()[0] == foo);
-
-		if ((tot & 0xffff) == 0) printf("%u) %.10f\n", tot, cnt / (float64)tot);
-
-		// 0.0000070408
-		// Last round
-		/* l ^= (r.permute(e, xpn) ^= k[15]).substitute<6, 4>(u, _subs, 8).permute(v, perm);
-		l.merge(r).permute(output, fp); */
-
-		//printf("0x%llx\n", output.getData<uint64>()[0]);
+		getc(stdin);
 	}
-
-	printf("%u / %u -> %f\n", cnt, tot, cnt / (float32)tot);
 
 	return 0;
 }

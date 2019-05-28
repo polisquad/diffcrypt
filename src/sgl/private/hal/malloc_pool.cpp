@@ -1,10 +1,11 @@
 #include "hal/malloc_pool.h"
-MallocPool::MallocPool(uint64 _numBlocks, sizet _blockSize, sizet blockAlignment, void * buffer) :
-	pool(buffer),
-	bHasOwnBuffer(buffer == nullptr),
-	numBlocks(_numBlocks),
-	blockSize(_blockSize),
-	numFreeBlocks(numBlocks)
+
+MallocPool::MallocPool(uint64 _numBlocks, sizet _blockSize, sizet blockAlignment, void * buffer)
+	: pool{buffer}
+	, bHasOwnBuffer{buffer == nullptr}
+	, numBlocks{_numBlocks}
+	, blockSize{_blockSize}
+	, numFreeBlocks{numBlocks}
 {
 	const sizet
 		descriptorSize	= sizeof(void*),
@@ -19,8 +20,8 @@ MallocPool::MallocPool(uint64 _numBlocks, sizet _blockSize, sizet blockAlignment
 
 	// Padding for aligned blocks
 	head = setOffset(pool, blockAlignment - descriptorSize);
-	// Set pool end address
-	end = reinterpret_cast<void*>(reinterpret_cast<uint64>(pool) + poolSize);
+	// Set pool tail address
+	tail = reinterpret_cast<void*>(reinterpret_cast<uint64>(pool) + poolSize);
 
 	// Init linked list
 	for (uint64 b = 0; b < numBlocks - 1; ++b)
@@ -31,6 +32,21 @@ MallocPool::MallocPool(uint64 _numBlocks, sizet _blockSize, sizet blockAlignment
 	
 	// Reset head
 	head = getNext(pool);
+}
+
+MallocPool::MallocPool(MallocPool && other)
+	: pool{other.pool}
+	, bHasOwnBuffer{other.bHasOwnBuffer}
+	, head{other.head}
+	, tail{other.tail}
+	, blockSize{other.blockSize}
+	, numBlocks{other.numBlocks}
+	, numFreeBlocks{other.numFreeBlocks}
+{
+	other.pool = nullptr;
+	other.bHasOwnBuffer = false;
+	other.head = other.tail = nullptr;
+	other.numBlocks = other.numFreeBlocks = 0;
 }
 
 void * MallocPool::malloc(sizet n, uint32 alignment)

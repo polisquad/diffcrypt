@@ -3,50 +3,26 @@
 #include "core_types.h"
 #include "hal/platform_memory.h"
 #include "templates/enable_if.h"
+#include "templates/is_trivial.h"
 
 /**
+ * @struct IsTriviallyCopyable templates/is_trivially_copyable.h
+ * 
  * Sets value to true if copy constructor is trivial or deleted
  */
 template<typename T>
 struct IsTriviallyCopyable { enum {value = __has_trivial_copy(T)}; };
 
-/// Move or copy single object
-/// @{
-template<typename T>
-FORCE_INLINE typename EnableIf<IsTriviallyCopyable<T>::value, void>::Type moveOrCopy(T & dest, const T & src)
-{
-	dest = src;
-}
-template<typename T>
-FORCE_INLINE typename EnableIf<!IsTriviallyCopyable<T>::value, void>::Type moveOrCopy(T & dest, const T & src)
-{
-	// Construct object
-	new (&dest) T(src);
-}
-
-template<typename T>
-FORCE_INLINE typename EnableIf<IsTriviallyCopyable<T>::value, void>::Type moveOrCopy(T & dest, T && src)
-{
-	dest = src;
-}
-template<typename T>
-FORCE_INLINE typename EnableIf<!IsTriviallyCopyable<T>::value, void>::Type moveOrCopy(T & dest, T && src)
-{
-	// Construct object
-	new (&dest) T(src);
-}
-/// @}
-
 /// Move or copy buffer
 /// @{
 template<typename T>
-FORCE_INLINE typename EnableIf<IsTriviallyCopyable<T>::value, void>::Type moveOrCopy(T * dest, const T * src, uint64 n)
+FORCE_INLINE typename EnableIf<IsTriviallyCopyable<T>::value, void>::Type copy(T * dest, const T * src, uint64 n)
 {
 	// Copy memory
 	PlatformMemory::memcpy(dest, src, n * sizeof(T));
 }
 template<typename T>
-FORCE_INLINE typename EnableIf<!IsTriviallyCopyable<T>::value, void>::Type moveOrCopy(T * dest, const T * src, int64 n)
+FORCE_INLINE typename EnableIf<!IsTriviallyCopyable<T>::value, void>::Type copy(T * dest, const T * src, int64 n)
 {
 	// Copy construct each element
 	int64 i = 0;
@@ -56,27 +32,27 @@ FORCE_INLINE typename EnableIf<!IsTriviallyCopyable<T>::value, void>::Type moveO
 			  T * _dest	= dest + i;
 		const T * _src	= src + i;
 
-		new (_dest + 0) T(_src[0]);
-		new (_dest + 1) T(_src[1]);
-		new (_dest + 2) T(_src[2]);
-		new (_dest + 3) T(_src[3]);
-		new (_dest + 4) T(_src[4]);
-		new (_dest + 5) T(_src[5]);
-		new (_dest + 6) T(_src[6]);
-		new (_dest + 7) T(_src[7]);
+		_dest[0] = _src[0];
+		_dest[1] = _src[1];
+		_dest[2] = _src[2];
+		_dest[3] = _src[3];
+		_dest[4] = _src[4];
+		_dest[5] = _src[5];
+		_dest[6] = _src[6];
+		_dest[7] = _src[7];
 	}
 	for (; i < n - 4; i += 4)
 	{
 			  T * _dest	= dest + i;
 		const T * _src	= src + i;
 		
-		new (_dest + 0) T(_src[0]);
-		new (_dest + 1) T(_src[1]);
-		new (_dest + 2) T(_src[2]);
-		new (_dest + 3) T(_src[3]);
+		_dest[0] = _src[0];
+		_dest[1] = _src[1];
+		_dest[2] = _src[2];
+		_dest[3] = _src[3];
 	}
 	for (; i < n; ++i)
-		new (dest + i) T(src[i]);
+		dest[i] = src[i];
 }
 /// @}
 

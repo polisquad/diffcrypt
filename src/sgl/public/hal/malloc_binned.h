@@ -4,7 +4,7 @@
 #include "platform_memory.h"
 #include "platform_math.h"
 #include "malloc_pool.h"
-#include "containers/linked_list.h"
+#include "containers/list.h"
 #include "containers/binary_tree.h"
 #include "containers/pair.h"
 
@@ -46,8 +46,8 @@ class MallocBinned : public Malloc
 protected:
 	/// Link and node types
 	/// @{
-	using PoolLink		= Link<MallocPool>;
-	using PoolLinkRef	= PoolLink*;
+	using PoolLink		= ::DoubleLink<MallocPool>;
+	using PoolLinkRef	= ::DoubleLinkRef<MallocPool>;
 
 	using PoolNode		= BinaryNode<Pair<void*, MallocPool*>>;
 	using PoolNodeRef	= PoolNode*;
@@ -130,7 +130,7 @@ protected:
 			const uint64 numBlocks	= (MALLOC_BINNED_POOL_SIZE - MALLOC_BINNED_BLOCK_ALIGNMENT) / chunkSize;
 
 			// Construct link
-			new (link) PoolLink((MallocPool&&)MallocPool(numBlocks, blockSize, MALLOC_BINNED_BLOCK_ALIGNMENT, poolBuffer));
+			new (link) PoolLink(MallocPool(numBlocks, blockSize, MALLOC_BINNED_BLOCK_ALIGNMENT, poolBuffer));
 
 			// Construct node
 			new (node) PoolNode(Pair<void*, MallocPool*>(poolBuffer, &(link->data)));
