@@ -974,6 +974,107 @@ public:
 
 		return out;
 	}
+
+protected:
+	/**
+	 * Internal sample code
+	 * 
+	 * @param [in] dx sbox differential input
+	 * @param [in] p0 out differential probability
+	 * @param [in] s simulated sbox index
+	 */
+	FORCE_INLINE float32 sample_internal(const BitArray & dx, float32 p0 = 1.f, uint32 s = 0)
+	{
+		if (s < 8)
+		{
+			uint32 x = dx(s * 6, (s + 1) * 6);
+			if (x != 0)
+			{
+				uint32 y = 0, d = 0;
+				while (d == 0) // ! Assuming there's no null row
+				{
+					y = rand() & 0xf;
+					d = params->difs[s][(x << 4) + y];
+				}
+
+				uint32 _y = y << 4;
+				return sample_internal(dx, p0 * (d / 64.f), s + 1);
+			}
+			else
+				return sample_internal(dx, p0, s + 1);
+		}
+
+		return p0;
+	}
+
+public:
+	/**
+	 * Simulate a random walk starting from this partial path
+	 * 
+	 * @return simualated path cost
+	 */
+	float32 sample()
+	{
+		// Compute sbox input
+		BitArray dx(48);
+
+		float32 p = sample_internal(rounds.last()->dr.permute(dx, params->xpn));
+		return -log2(p);
+	}
+};
+
+template<typename T>
+struct SearchNode
+{
+public:
+	/// Node data
+	T data;
+
+	/// Node average cost
+	float32 cost;
+
+	/// Num visits
+	uint32 visitCount;
+
+public:
+	/// Default constructor
+	template<typename _T = T>
+	FORCE_INLINE SearchNode(_T && _data)
+		: data{forward<_T>(_data)}
+		, cost{FLT_MAX}
+		, visitCount{0} {}
+
+	/// Copy constructor
+	SearchNode(const SearchNode & other) = default;
+
+	/// Move constructor
+	SearchNode(SearchNode && other) = default;
+	
+	/// Copy assignment
+	SearchNode & operator=(const SearchNode & other) = default;
+
+	/// Move assignment
+	SearchNode & operator=(SearchNode && other) = default;
+	
+	/**
+	 * Compute exploration value
+	 * 
+	 * @param [in] pVisits parent node visit count
+	 * @return exploration value
+	 */
+	FORCE_INLINE float32 getValue(uint32 pVisits) const
+	{
+		const float32 k = 0.1f;
+		return visitCount ? 1.f / (visitCount * cost) + 0.1f * sqrt(log(pVisits) / visitCount) : FLT_MAX;
+	}
+
+	// Tick this node, updates its cost and visit count
+	void update()
+	{
+		cost *= visitCount;
+		cost += data.sample();
+		cost /= ++visitCount;
+	}
 };
 
 int32 main()
@@ -996,53 +1097,49 @@ int32 main()
 		}
 	};
 
-	class ComparePath
-	{
-	public:
-		FORCE_INLINE int32 operator()(const Path & a, const Path & b) const
-		{
-			return Compare<float32>()(a.getTotalCost(), b.getTotalCost());
-		}
-	};
-	BinaryTree<Path, ComparePath, MallocBinned> paths(new MallocBinned);
+	//////////////////////////////////////////////////
+	// Init
+	//////////////////////////////////////////////////
 
-	//////////////////////////////////////////////////
-	// Init tree
-	//////////////////////////////////////////////////
+	List<SearchNode<Path>> nodes;
 	
 	for (uint32 i = 0; i < sizeof(dL) / sizeof(*dL); ++i)
 	{
 		Path path(&params);
 		path.init(BitArray(dL[i], 64));
 		
-		paths.insert(move(path));
+		nodes.push(SearchNode<Path>(move(path)));
 	}
 
-	//////////////////////////////////////////////////
-	// Run search
-	//////////////////////////////////////////////////
-	
-	Path * bestPath;
-	for (;;)
+	for (uint32 r = 1; r < params.numRounds - 2; ++r)
 	{
-		auto it = paths.begin();
-		printf("num nodes: %llu\n", paths.getCount());
-		printf("best path: %f {g = %f; h = %f}\n", it->getTotalCost());
+		float32 max = -FLT_MAX;
+		SearchNode<Path> * node = nullptr;
 
-		// Found a complete path with min cost
-		if (it->isComplete())
+		for (uint32 i = 0; i < 1u << 16; ++i)
 		{
-			bestPath = new Path(*it);
-			break;
+			// Find node to sample
+			max = -FLT_MAX;
+			for (auto & n : nodes)
+			{
+				const float32 v = n.getValue(i);
+				if (v > max) max = v, node = &n;
+			}
+
+			// Sample node and repeat
+			node->update();
 		}
 
-		// Expand best path
-		for (auto & path : it->expand())
-			paths.insert(move(path));
+		printf("best node: %p {v = %.3f, cost = %.3f}\n", node, max, node->data.getTotalCost());
 
-		// Remove expanded node
-		paths.remove(it);
-		
+		// Expand best node
+		List<Path> paths = node->data.expand();
+
+		// Next round nodes
+		nodes.empty();
+		for (auto & path : paths)
+			nodes.insert(SearchNode<Path>(move(path)));
+
 		getc(stdin);
 	}
 

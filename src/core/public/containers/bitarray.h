@@ -71,6 +71,8 @@ public:
 		// Copy data
 		count = other.count;
 		PlatformMemory::memcpy(data, other.data, (size = other.size));
+
+		return *this;
 	}
 
 	/// Move assignment
@@ -82,6 +84,8 @@ public:
 		size = other.size;
 
 		other.data = nullptr;
+
+		return *this;
 	}
 
 	/// Destructor
