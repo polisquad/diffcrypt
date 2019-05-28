@@ -659,15 +659,50 @@ void printChars(const std::vector<byte> &x) {
 	printf("\n");
 }
 
-std::vector<byte> createBitArray(char* buffer, int count) {
+std::vector<byte> createBitArray(const char* buffer, int count) {
 	std::vector<byte> out;
 	out.reserve(count*8);
-	byte mask = 1;
 	for (int i = 0; i < count; i++) {
 		byte b = buffer[i];
 		for(int j=7; j>=0; j--){
-			out.push_back((b & (mask << j)) != 0);
+			out.push_back((b & (1 << j)) != 0);
 		}
+	}
+	return out;
+}
+
+std::vector<byte> createIntBitArray(int num, int bits) {
+	std::vector<byte> out;
+	out.reserve(bits);
+	for(int i=bits-1; i>=0; i--) {
+		out.push_back((num & (1 << i)) != 0);
+	}
+	return out;
+}
+
+std::vector<byte> createZerosArray(int n){
+	std::vector<byte> out;
+	out.reserve(n);
+	for(int i=0; i<n; i++){
+		out.push_back(0);
+	}
+	return out;
+}
+
+std::vector<byte> createOnesArray(int n){
+	std::vector<byte> out;
+	out.reserve(n);
+	for(int i=0; i<n; i++){
+		out.push_back(1);
+	}
+	return out;
+}
+
+std::vector<byte> createRandomArray(int n){
+	std::vector<byte> out;
+	out.reserve(n);
+	for(int i=0; i<n; i++){
+		out.push_back(rand()%2);
 	}
 	return out;
 }
@@ -711,6 +746,16 @@ std::vector<byte> xorOp(const std::vector<byte> &a, const std::vector<byte> &b) 
 	return output;
 }
 
+int eqOp(const std::vector<byte> &a, const std::vector<byte> &b) {
+	const int na = a.size();
+	const int nb = b.size();
+	if(na!=nb) return 0;
+	for(int i=0; i<na; i++){
+		if(a[i]!=b[i]) return 0;
+	}
+	return 1;
+}
+
 std::vector<byte> leftShiftRotate(const std::vector<byte> &x, int k) {
 	int n = x.size();
 	int shift = k%n;
@@ -732,6 +777,19 @@ std::vector<byte> join(const std::vector<byte> &a, const std::vector<byte> &b) {
 	out.reserve(na+nb);
 	for(int i=0; i<na; i++) out.push_back(a[i]);
 	for(int i=0; i<nb; i++) out.push_back(b[i]);
+	return out;
+}
+
+std::vector<byte> repeat(const std::vector<byte> x, int num){
+	int x_length = x.size();
+	int N = x_length * num;
+	std::vector<byte> out;
+	out.reserve(N);
+	for(int i=0; i<num; i++){
+		for(int j=0; j<x_length; j++){
+			out.push_back(x[j]);
+		}
+	}
 	return out;
 }
 
@@ -782,18 +840,32 @@ std::vector<byte> f(const std::vector<byte> &input, const std::vector<byte> &key
 	return permutateChoice(output,Permut);
 }
 
+std::vector<byte> sboxAll(const std::vector<byte> &input) {
+	std::vector<byte> output;
+	output.reserve(32);
+	for(int i=0; i<8; i++){
+		std::vector<byte> x_slice = std::vector<byte>(input.begin()+i*6,input.begin()+i*6+6);
+		std::vector<byte> y = sbox(x_slice,i);
+		output.push_back(y[0]);
+		output.push_back(y[1]);
+		output.push_back(y[2]);
+		output.push_back(y[3]);
+	}
+	return output;
+}
+
 std::vector<byte> encrypt(const std::vector<byte> &message, const std::vector<std::vector<byte>> &keys) {
 	std::vector<byte> m = permutateChoice(message,IP);
 	std::vector<byte> L, R;
 	L.reserve(32);
 	R.reserve(32);
-	for(int i=0; i<16; i++){
+	for(int i=0; i<numRounds; i++){
 		L = std::vector<byte>(m.begin(),m.begin()+32);
 		R = std::vector<byte>(m.begin()+32,m.begin()+64);
 		std::vector<byte> oldR = R;
 		R = xorOp(L,f(R,keys[i]));
 		L = oldR;
-		if(i!=15) m = join(L,R);
+		if(i!=numRounds-1) m = join(L,R);
 	}
 	m = join(R,L);
 	m = permutateChoice(m,IPinv);
@@ -805,7 +877,7 @@ std::vector<byte> decrypt(const std::vector<byte> &message, const std::vector<st
 	std::vector<byte> L, R;
 	L.reserve(32);
 	R.reserve(32);
-	for(int i=15; i>=0; i--){
+	for(int i=numRounds-1; i>=0; i--){
 		L = std::vector<byte>(m.begin(),m.begin()+32);
 		R = std::vector<byte>(m.begin()+32,m.begin()+64);
 		std::vector<byte> oldR = R;
@@ -816,6 +888,22 @@ std::vector<byte> decrypt(const std::vector<byte> &message, const std::vector<st
 	m = join(R,L);
 	m = permutateChoice(m,IPinv);
 	return m;
+}
+
+std::vector<byte> partialEncrypt(const std::vector<byte> &message, const std::vector<std::vector<byte>> &keys) {
+	std::vector<byte> m = permutateChoice(message,IP);
+	std::vector<byte> L, R;
+	L.reserve(32);
+	R.reserve(32);
+	for(int i=0; i<numRounds-2; i++){
+		L = std::vector<byte>(m.begin(),m.begin()+32);
+		R = std::vector<byte>(m.begin()+32,m.begin()+64);
+		std::vector<byte> oldR = R;
+		R = xorOp(L,f(R,keys[i]));
+		L = oldR;
+		if(i!=numRounds-3) m = join(L,R);
+	}
+	return R;
 }
 
 int numActivatedSBox(const std::vector<byte> &R){
@@ -844,16 +932,32 @@ int getMaxDiffVal(int sbox_index, int dx){
 }
 
 struct Path{
+
 	std::vector<byte> dr, dl, dx, dy;
+
+	double getCost() const{
+		double p = 1.0;
+		for(int i=0; i<8; i++){
+			int r = i*6;
+			int s = i*4;
+			auto dxit = dx.begin();
+			std::vector<byte> bits = std::vector<byte>(dxit+r,dxit+r+6);
+			int dx_val = 32*bits[0] + 16*bits[1] + 8*bits[2] + 4*bits[3] + 2*bits[4] + bits[5];
+			auto dyit = dy.begin();
+			bits = std::vector<byte>(dyit+s,dyit+s+4);
+			int dy_val = 8*bits[0] + 4*bits[1] + 2*bits[2] + bits[3];
+			p *= (double)getDiffVal(i,dx_val,dy_val)/64.0;
+		}
+		return -log2(p);
+	}
+
 };
 
-class Node
-{
-public:
+struct Node {
 
 	std::vector<Path> paths;
 	std::vector<byte> next_dy;
-	float g, h;
+	double g, h;
 
 	bool operator<(const Node &other) const{
 		return (g+h)<(other.g+other.h);
@@ -871,14 +975,13 @@ public:
 		input.dx = expand(input.dr);
 		input.dy = createBitArray(zeros,4);
 		next_dy = input.dy;
-
 		paths.push_back(input);
 		g = 0;
 	}
 
 	void compute_h(){
 		// out probability
-		float p = 1.0;
+		double p = 1.0;
 
 		const int numLeftRounds = numRounds - paths.size() - 2;
 		if(numLeftRounds){
@@ -887,7 +990,7 @@ public:
 				auto iterator = paths.back().dx.begin();
 				std::vector<byte> bits = std::vector<byte>(iterator+r,iterator+r+6);
 				int input_val = 32*bits[0] + 16*bits[1] + 8*bits[2] + 4*bits[3] + 2*bits[4] + bits[5];
-				p *= (float)getMaxDiffVal(i,input_val)/64.0;
+				p *= (double)getMaxDiffVal(i,input_val)/64.0;
 			}
 			for(int i=0; i<numLeftRounds-1; i++){
 				p *= 0.25f;
@@ -897,26 +1000,76 @@ public:
 	}
 
 	int can_be_expanded(const std::vector<byte> &dx) const {
-		// TODO
-		return 1;
+		std::vector<byte> mask;
+		mask.reserve(32);
+		std::vector<byte> zeros = createZerosArray(4);
+		std::vector<byte> ones = createOnesArray(4);
+		for(int i=0; i<8; i++){
+			int present = 0;
+			for(int j=0; j<6 && !present; j++){
+				if(dx[i*6+j]) present = 1;
+			}
+			if(present) mask=join(mask,ones);
+			else mask=join(mask,zeros);
+		}
+		for(int i=0; i<32; i++){
+			if(mask[i] && !next_dy[i]) return 1;
+		}
+		return 0;
 	}
 
 	void increment_next_dy(const std::vector<byte> &dx){
-		// TODO
+		std::vector<byte> mask;
+		mask.reserve(32);
+		std::vector<byte> zeros = createZerosArray(4);
+		std::vector<byte> ones = createOnesArray(4);
+		for(int i=0; i<8; i++){
+			int present = 0;
+			for(int j=0; j<6 && !present; j++){
+				if(dx[i*6+j]) present = 1;
+			}
+			if(present) mask=join(mask,ones);
+			else mask=join(mask,zeros);
+		}
+		for(int i=31; i>=0; i--){
+			if(mask[i]){
+				if(!next_dy[i]){
+					next_dy[i] = 1;
+					return;
+				}
+				else{
+					next_dy[i] = 0;
+				}
+			}
+		}
+		
 	}
 
-	void printInfo() const{
-		printf("NodeInfo: g=%.2f, h=%.2f",g,h);
+	void printInfo(int verbose=1) const{
+		printf("\n*** NodeInfo ***\n");
+		int p = paths.size();
+		if(verbose){
+			for(int i=0; i<p; i++){
+				printf("Path %d\n",i);
+				printf("  dl = "); printHex(paths[i].dl);
+				printf("  dr = "); printHex(paths[i].dr);
+				printf("  dx = "); printHex(paths[i].dx);
+				printf("  dy = "); printHex(paths[i].dy);
+			}
+			//printf("next_dy = "); printHex(next_dy);
+		}
+		printf("g=%.2f, h=%.2f\n",g,h);
 	}
 
 };
 
 void depthFirstSearch(std::vector<Node> &nodesList, Node &bestSolution){
 	Node &n = nodesList.back();
+	//n.printInfo();
 	const int numLeftRounds = numRounds - n.paths.size() - 2;
 	if(numLeftRounds==0){
 		// complete solution, pop
-		//printf("SOLUTION\n");
+		//printf("\nSOLUTION\n\n");
 		if(n<bestSolution) bestSolution = n;
 		nodesList.pop_back();
 		return;
@@ -924,53 +1077,134 @@ void depthFirstSearch(std::vector<Node> &nodesList, Node &bestSolution){
 	// incomplete solution
 	if(n.can_be_expanded(n.paths.back().dx)){
 		// expand
-		//printf("EXPAND\n");
+		//printf("\nEXPAND\n\n");
 		Node next_node = n;
 		next_node.paths.back().dy = n.next_dy;
 		Path new_path;
-		const Path &last_path = next_node.paths.back();
+		Path last_path = next_node.paths.back();
 		new_path.dl = last_path.dr;
-		new_path.dr = xorOp(last_path.dl,last_path.dy);
+		new_path.dr = xorOp(last_path.dl,permutateChoice(last_path.dy,Permut));
 		new_path.dx = expand(new_path.dr);
 		next_node.paths.push_back(new_path);
-		next_node.compute_h();
-		if(next_node<bestSolution){
-			nodesList.push_back(next_node);
-		}
+		next_node.g += last_path.getCost();
+		next_node.next_dy = createZerosArray(32);
 		n.increment_next_dy(n.paths.back().dx);
+		if(next_node.g < std::numeric_limits<double>::max()){
+			next_node.compute_h();
+			if(next_node<bestSolution){
+				nodesList.push_back(next_node);
+			}
+		}
 		return;
 	}
 	// pop
-	//printf("POP\n");
+	//printf("\nPOP\n\n");
 	nodesList.pop_back();
 }
 
 int main()
 {
+	
+	//srand(time(NULL));
 
-	char key_chars[] = "\x13\x34\x57\x79\x9B\xBC\xDF\xF1";
+	char key_chars[] = "\x01\x23\x45\x67\x89\xAB\xCD\xEF";
 	std::vector<byte> key = createBitArray(key_chars, 8);
-	std::vector<std::vector<byte>> keys = keySchedule(key);
-
-	char message_chars[] = "\x00\x40\x00\x00\x00\x00\x00\x00";
-	std::vector<byte> m = createBitArray(message_chars, 8);
-
-	Node n;
-	n.init(m);
-	n.compute_h();
+	std::vector<std::vector<byte>> keys = keySchedule(key);	
 	
 	Node bestSolution;
 	bestSolution.g = MAXFLOAT;
 	bestSolution.h = 0;
 	std::vector<Node> nodesList;
 
-	nodesList.push_back(n);
-
-	for(int i=0; i<100; i++){
-		depthFirstSearch(nodesList,bestSolution);
+	for(int i=0; i<24; i++){
+		std::vector<byte> m = createBitArray((char*)dL[i], 8);
+		Node n;
+		n.init(m);
+		n.compute_h();
+		nodesList.push_back(n);
 	}
 
+	int i=0;
+	while(nodesList.size()>0){
+		if(i%100000==0) bestSolution.printInfo(0);
+		depthFirstSearch(nodesList,bestSolution);
+		if(bestSolution.g<17.13) break;
+		i++;
+	}
 	bestSolution.printInfo();
+
+	std::vector<byte> dxr = bestSolution.paths.front().dr;
+	std::vector<byte> dx = permutateChoice(join(dxr,createZerosArray(32)),IPinv);
+	std::vector<byte> dz = bestSolution.paths.back().dr;
+	double p = 1.0/pow(2,bestSolution.g);
+
+	//std::vector<byte> dx = createBitArray("\x00\x01\x01\x00\x00\x00\x00\x00",8);
+	//std::vector<byte> dz = createBitArray("\x08\x20\x84\x09",4);
+	//double p = 1.0/pow(2,17.12);
+
+	printf("\ndx = "); printHex(dx);
+	printf("dz = "); printHex(dz);
+	printf("p = %f\n\n",p);
+
+	/*
+	// VERIFY EXPECTED PROBABILITY
+	int count = 0;
+	int n = 1000000;
+
+	for(int i=0; i<n; i++){
+		std::vector<byte> x1 = createRandomArray(64);
+		std::vector<byte> x2 = xorOp(x1,dx);
+		std::vector<byte> z1 = partialEncrypt(x1,keys);
+		std::vector<byte> z2 = partialEncrypt(x2,keys);
+		std::vector<byte> real_dz = xorOp(z1,z2);
+		if(eqOp(dz,real_dz)) count++;
+	}
+
+	printf("count = %d, n = %d\np = %f\n",count,n,(double)count/(double)n);
+	return 0;
+	*/
+
+	int counters[64];
+	for(int i=0; i<64; i++) counters[i] = 0;
+
+	int n = (double)2.0*(double)1.0/p;
+	for(int i=0; i<n; i++){
+		std::vector<byte> x1 = createRandomArray(64);
+		std::vector<byte> x2 = xorOp(x1,dx);
+		std::vector<byte> ctx1 = encrypt(x1,keys);
+		std::vector<byte> ctx2 = encrypt(x2,keys);
+		std::vector<byte> d1 = permutateChoice(ctx1,IP);
+		std::vector<byte> d2 = permutateChoice(ctx2,IP);
+		std::vector<byte> d = xorOp(d1,d2);
+		std::vector<byte> dh = std::vector<byte>(d.begin(),d.begin()+32);
+
+		std::vector<byte> dleft = permutateChoice(xorOp(dz,dh),PermutInv);
+		std::vector<byte> c1 = std::vector<byte>(d1.begin()+32,d1.begin()+64);
+		std::vector<byte> c2 = std::vector<byte>(d2.begin()+32,d2.begin()+64);
+		std::vector<byte> e1 = expand(c1);
+		std::vector<byte> e2 = expand(c2);
+
+		for(int j=0; j<64; j++){
+			std::vector<byte> subkey = createIntBitArray(j,6);
+			std::vector<byte> key_j = repeat(subkey,8);
+			std::vector<byte> right1 = sboxAll(xorOp(e1,key_j));
+			std::vector<byte> right2 = sboxAll(xorOp(e2,key_j));
+			std::vector<byte> dright = xorOp(right1,right2);
+			//for(int k=0; k<8; k++){
+			// FOR NOW TEST ONE PARTIAL SUBKEY
+			std::vector<byte> dleft_k = std::vector<byte>(dleft.begin()+20,dleft.begin()+24);
+			std::vector<byte> dright_k = std::vector<byte>(dright.begin()+20,dright.begin()+24);
+			if(eqOp(dleft_k,dright_k)) counters[j]+=1;
+			//}
+		}
+	}
+
+	printBits(std::vector<byte>(keys[numRounds-1].begin()+30,keys[numRounds-1].begin()+36));
+
+	for(int j=0; j<64; j++){
+		double q = (double)counters[j]/(double)n;
+		printf("key = %d, p = %f (%d/%d)\n",j,q,counters[j],n);
+	}
 
 	// DES
 	/*
@@ -989,31 +1223,6 @@ int main()
 	printf("Output:  "); printHex(m);
 	printf("         "); printChars(m);
 	*/
-
-	/*srand(time(NULL));
-	char message_chars[] = "CiaoSnep";
-
-	int counter = 0;
-	int N = 1000;
-	for(int i=0; i<N; i++){
-		for(int j=0; j<8; j++) message_chars[j] = rand();
-		Array<ubyte> m1 = createBitArray(message_chars, 8);
-		Array<ubyte> m2 = m1;
-		m2[6] ^= 0x1;
-		m1=partialEncrypt(m1,keys);
-		m2=partialEncrypt(m2,keys);
-		Array<ubyte> x = xorOp(m1,m2);
-		int c = 0;
-		for(int j=0; j<32; j++){
-			if(x[j]) c++;
-		}
-		if(c==2){
-			counter += 1;
-			printBits(x);
-		}
-	}
-	printf("# success = %d\n",counter);
-	printf("prob = %f\n",(float)counter/(float)N);*/
 
 	/*
 	// dX_R sequences that activate just 1 sbox in F1
