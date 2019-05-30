@@ -18,7 +18,7 @@ protected:
 	uint32 visited;
 
 	/// Average score
-	float32 score;
+	float64 score;
 
 	/// Node data
 	T data;
@@ -29,7 +29,7 @@ public:
 	FORCE_INLINE MCNode(_T && _data, MCNode * _parent = nullptr)
 		: parent{_parent}
 		, visited{0}
-		, score{0.f}
+		, score{0.}
 		, data{forward<_T>(_data)} {}
 
 	/// Returns true if node is already expanded
@@ -39,17 +39,23 @@ public:
 	}
 
 	/// Returns node characteristic value
-	FORCE_INLINE float32 getValue() const
+	FORCE_INLINE float64 getValue() const
 	{
 		const float32 k = 0.2f;
 		return visited ? (score / visited) + k * Math::sqrt(2.f * log(parent->visited) / visited) : FLT_MAX;
+	}
+
+	/// Returns node characteristic with heuristic value
+	FORCE_INLINE float64 getHeuristicValue() const
+	{
+		return visited ? getValue() : data.getHeuristicScore();
 	}
 
 	/// Returns pointer to next node to explore
 	MCNode * getNextNode()
 	{
 		MCNode * out = nullptr;
-		float32 maxScore = -FLT_MAX;
+		float64 maxScore = -FLT_MAX;
 
 		for (auto & child : children)
 		{
@@ -122,6 +128,8 @@ public:
 	{
 		if (bHasOwnAllocator) allocator = new AllocT;
 	}
+
+	/// Get best node
 	
 	/// Init tree with initial node
 	template<typename _T = T>
@@ -146,6 +154,8 @@ public:
 				
 				// Update score
 				score += it->data.getScore();
+
+				printf("partial score: %.3f\n", score);
 			}
 			else break;
 		}

@@ -165,7 +165,7 @@ template<typename CompareT, typename It>
 void Container::SortingClass<Container::QUICKSORT>::sort(It begin, It end, CompareT && cmpfun)
 {
 	// Partition array around pivot value
-	It first = begin; if (first == end | ++begin == end) return;
+	It first = begin; if (first == end || ++begin == end) return;
 
 	// Partition code was limiting me
 	It pivot = first;
