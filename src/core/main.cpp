@@ -771,9 +771,10 @@ BitArray partialEncrypt(const BitArray &ptx, const BitArray *keys, const DesPara
 int32 main()
 {
 	Memory::createGMalloc();
+	srand(time(NULL));
 
 	DesParams params{
-		numRounds : 6,
+		numRounds : 5,
 		ip : ip,
 		fp : fp,
 		xpn : xpn,
@@ -788,20 +789,17 @@ int32 main()
 		}
 	};
 
-	BitArray key("\x13\x34\x57\x79\x9B\xBC\xDF\xF1", 64), keys[16];
+	BitArray key("SoxCulo!", 64), keys[16];
 	keySchedule(key,keys);
 
-	BitArray dx = BitArray("\x00\x01\x01\x00\x00\x00\x00\x00",64);
-	BitArray dz = BitArray("\x08\x20\x84\x09",32);
-	double p = 1.0/pow(2,17.12);
+	BitArray dx = BitArray("\x00\x00\x00\x00\x00\x00\x10\x00",64);
+	BitArray dz = BitArray("\x48\x4A\x08\x20",32);
+	double p = 0.007324;
 
-	// ---
+	int n = 10000;
+	int counter[4096];
+	for(int j=0; j<4096; j++) counter[j] = 0;
 
-	int n = 1000000;
-	int counter[64];
-	for(int j=0; j<64; j++) counter[j] = 0;
-
-	#pragma omp parallel for
 	for(int i=0; i<n; i++){
 		BitArray ptx1 = createRandomBitArray(64);
 		BitArray ptx2 = ptx1 ^ dx;
@@ -821,21 +819,31 @@ int32 main()
 		BitArray e1(48), e2(48);
 		ctx1_ip.slice(32,4).permute(e1,params.xpn);
 		ctx2_ip.slice(32,4).permute(e2,params.xpn);
-
+		
 		for(int j=0; j<64; j++){
-			ubyte _j = j << 2;
-			BitArray k = BitArray(&_j, 6);
-			BitArray x1 = e1.slice(6) ^ k;
-			BitArray x2 = e2.slice(6) ^ k;
-			BitArray right1(4), right2(4);
-			BitArray dright = x1.substitute<6, 4>(right1, params.subs[0]) ^ x2.substitute<6, 4>(right2, params.subs[0]);
-			counter[j] += dleft(0, 4) == dright(0, 4);
+			for(int k=0; k<64; k++){
+				ubyte _j = j << 2;
+				ubyte _k = k << 2;
+				BitArray key = BitArray(&_j, 6).append(BitArray(&_k, 6));
+				BitArray x_1 = e1.slice(12,0) ^ key;
+				BitArray x_2 = e2.slice(12,0) ^ key;
+				BitArray right1(8), right2(8);
+				BitArray dright = x_1.substitute<6, 4>(right1, params.subs, 2) ^ x_2.substitute<6, 4>(right2, params.subs, 2);
+				counter[j*64+k] += dleft.getData<ubyte>()[0] == dright.getData<ubyte>()[0];
+			}
 		}
 	}
 
-	for(int j=0; j<64; j++){
-		printf("%d) %f (%d/%d)\n",j, counter[j]/(double)n,counter[j],n);
+	double max = 0.0;
+	for(int j=0; j<4096; j++){
+		double q = counter[j]/(double)n;
+		if(q>max){
+			printf("%d) %f (%d/%d)\n",j,q,counter[j],n);
+			max = q;
+		}
 	}
+
+	printf("key = %04x\n",keys[4].getData<uint16>()[0]);
 	
 	return 0;
 }
