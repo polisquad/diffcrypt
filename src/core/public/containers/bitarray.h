@@ -307,6 +307,39 @@ public:
 	{
 		return BitArray(data + offset, n);
 	}
+
+	/**
+	 * 
+	 */
+	BitArray slicebit(uint32 begin, uint32 end)
+	{
+		int32 len = end - begin;
+		if (len == 0) return BitArray(0);
+
+		const uint32 beginOffset = begin & 0x7;
+		const uint32 beginLen = 8 - beginOffset;
+
+		BitArray out(len);
+
+		const ubyte * src = data + (begin >> 3);
+		ubyte * dst = out.data;
+
+		do
+		{
+			*dst = *src >> beginOffset;
+			*dst |= *++src << beginLen;
+
+			len -= 8;
+		} while (len > 0 && ++dst);
+
+		if (len != 0)
+		{
+			ubyte mask = (1 << (8 + len)) - 1;
+			*dst &= mask;
+		}
+
+		return out;
+	}
 	
 	/**
 	 * Append an array at the end
@@ -361,5 +394,27 @@ public:
 	FORCE_INLINE BitArray merge(const BitArray & other) const
 	{
 		return BitArray(*this).append(other);
+	}
+	
+	/**
+	 * 
+	 */
+	void printBinary() const
+	{
+		int32 len = count;
+		const ubyte * src = data;
+
+		while (len > 0)
+		{
+			ubyte b = *src;
+			for (int8 mask = 7; mask >= 0 && len > 0; --len, --mask)
+				printf("%u", (*src >> mask) & 0x1);
+
+			
+			printf(":");
+			++src;
+		}
+
+		printf("\n");
 	}
 };

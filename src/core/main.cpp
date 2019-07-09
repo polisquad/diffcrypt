@@ -789,61 +789,79 @@ int32 main()
 		}
 	};
 
-	BitArray key("SoxCulo!", 64), keys[16];
+	BitArray key("12345678", 64), keys[16];
 	keySchedule(key,keys);
+	printf("Roundkey = %llx\n",keys[params.numRounds-1].getData<uint64>()[0]);
 
 	BitArray dx = BitArray("\x00\x00\x00\x00\x00\x00\x10\x00",64);
 	BitArray dz = BitArray("\x48\x4A\x08\x20",32);
 	double p = 0.007324;
 
-	int n = 10000;
-	int counter[4096];
-	for(int j=0; j<4096; j++) counter[j] = 0;
+	printf("Round key: "); keys[params.numRounds - 1].printBinary();
+	BitArray retrievedKey(0);
 
-	for(int i=0; i<n; i++){
-		BitArray ptx1 = createRandomBitArray(64);
-		BitArray ptx2 = ptx1 ^ dx;
+	for(int subkey=0; subkey<4; subkey++){
 
-		BitArray ctx1 = encrypt(ptx1,keys,params);
-		BitArray ctx2 = encrypt(ptx2,keys,params);
+		int n = 10000;
+		int counter[4096];
+		for(int j=0; j<4096; j++) counter[j] = 0;
 
-		BitArray ctx1_ip(64), ctx2_ip(64), dctx_ip(64);
-		ctx1.permute(ctx1_ip, params.ip);
-		ctx2.permute(ctx2_ip, params.ip);
-		dctx_ip = ctx1_ip ^ ctx2_ip;
+		for(int i=0; i<n; i++){
+			BitArray ptx1 = createRandomBitArray(64);
+			BitArray ptx2 = ptx1 ^ dx;
 
-		BitArray dh = dctx_ip.slice(32);
-		BitArray dleft(32);
-		(dh^dz).permute(dleft,invPerm);
-		
-		BitArray e1(48), e2(48);
-		ctx1_ip.slice(32,4).permute(e1,params.xpn);
-		ctx2_ip.slice(32,4).permute(e2,params.xpn);
-		
-		for(int j=0; j<64; j++){
-			for(int k=0; k<64; k++){
-				ubyte _j = j << 2;
-				ubyte _k = k << 2;
-				BitArray key = BitArray(&_j, 6).append(BitArray(&_k, 6));
-				BitArray x_1 = e1.slice(12,0) ^ key;
-				BitArray x_2 = e2.slice(12,0) ^ key;
-				BitArray right1(8), right2(8);
-				BitArray dright = x_1.substitute<6, 4>(right1, params.subs, 2) ^ x_2.substitute<6, 4>(right2, params.subs, 2);
-				counter[j*64+k] += dleft.getData<ubyte>()[0] == dright.getData<ubyte>()[0];
+			BitArray ctx1 = encrypt(ptx1,keys,params);
+			BitArray ctx2 = encrypt(ptx2,keys,params);
+
+			BitArray ctx1_ip(64), ctx2_ip(64), dctx_ip(64);
+			ctx1.permute(ctx1_ip, params.ip);
+			ctx2.permute(ctx2_ip, params.ip);
+			dctx_ip = ctx1_ip ^ ctx2_ip;
+
+			BitArray dh = dctx_ip.slice(32);
+			BitArray dleft(32);
+			(dh^dz).permute(dleft,invPerm);
+			
+			BitArray e1(48), e2(48);
+			ctx1_ip.slice(32,4).permute(e1,params.xpn);
+			ctx2_ip.slice(32,4).permute(e2,params.xpn);
+			
+			for(int j=0; j<64; j++){
+				for(int k=0; k<64; k++){
+					ubyte _j = j << 2;
+					ubyte _k = k << 2;
+					BitArray key = BitArray(&_j, 6).append(BitArray(&_k, 6));
+					BitArray x_1 = e1.slicebit(12*subkey, 12*(subkey+1)) ^ key;
+					BitArray x_2 = e2.slicebit(12*subkey, 12*(subkey+1)) ^ key;
+					BitArray right1(8), right2(8);
+					BitArray dright = x_1.substitute<6, 4>(right1, params.subs+2*subkey, 2) ^ x_2.substitute<6, 4>(right2, params.subs+2*subkey, 2);
+					counter[j*64+k] += dleft.getData<ubyte>()[subkey] == dright.getData<ubyte>()[0];
+				}
 			}
 		}
-	}
 
-	double max = 0.0;
-	for(int j=0; j<4096; j++){
-		double q = counter[j]/(double)n;
-		if(q>max){
-			printf("%d) %f (%d/%d)\n",j,q,counter[j],n);
-			max = q;
+		printf("Correct subkey %d: ", subkey); keys[4].printBinary();
+
+		double max = 0.0;
+		BitArray maxKey;
+		for(int i=0; i<4096; i++){
+			double q = counter[i]/(double)n;
+			if(q>max){
+				int j = i/64;
+				int k = i%64;
+				ubyte _j = j << 2;
+				ubyte _k = k << 2;
+				BitArray est_key = BitArray(&_j, 6).append(BitArray(&_k, 6));
+				maxKey = est_key;
+				//printf("%d) %f (%d/%d) : ",i,q,counter[i],n); key.printBinary();
+				max = q;
+			}
 		}
+		printf("Estimated subkey: "); maxKey.printBinary();
+		retrievedKey.append(maxKey);
 	}
 
-	printf("key = %04x\n",keys[4].getData<uint16>()[0]);
+	printf("Retrieved round key: "); retrievedKey.printBinary();
 	
 	return 0;
 }
