@@ -326,15 +326,15 @@ public:
 
 		do
 		{
-			*dst = *src >> beginOffset;
-			*dst |= *++src << beginLen;
+			*dst = *src << beginOffset;
+			*dst |= *++src >> beginLen;
 
 			len -= 8;
 		} while (len > 0 && ++dst);
 
 		if (len != 0)
 		{
-			ubyte mask = (1 << (8 + len)) - 1;
+			ubyte mask = 0xff << (-len);
 			*dst &= mask;
 		}
 
