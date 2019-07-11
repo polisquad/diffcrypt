@@ -2,6 +2,9 @@
 
 #include "coremin.h"
 
+/**
+ * Dynamic bit-packed array for cryptography
+ */
 class BitArray
 {
 protected:
@@ -22,20 +25,25 @@ public:
 		, size{0} {}
 	
 	/// Uninitialized constructor
-	FORCE_INLINE explicit BitArray(uint32 _count)
+	FORCE_INLINE explicit BitArray(uint32 inCount)
 		: data{nullptr}
-		, count{_count}
-		, size{((count - 1) >> 3) + 1}
+		, count{inCount}
+		, size{((inCount - 1) >> 3) + 1}
 	{
 		// Alloc empty buffer
 		if (size > 0) data = reinterpret_cast<ubyte*>(gMalloc->malloc(size));
 	}
 
-	/// Initialized constructor
-	FORCE_INLINE BitArray(const void * source, uint32 _count)
+	/**
+	 * Array initialization
+	 * 
+	 * @param [in] source array source
+	 * @param [in] inCount length of the source array (in bits)
+	 */
+	FORCE_INLINE BitArray(const void * source, uint32 inCount)
 		: data{nullptr}
-		, count{_count}
-		, size{_count ? ((_count - 1) >> 3) + 1 : 0}
+		, count{inCount}
+		, size{inCount ? ((inCount - 1) >> 3) + 1 : 0}
 	{
 		if (source && size > 0)
 		{
@@ -45,11 +53,15 @@ public:
 		}
 	}
 
-	/// Copy constructor
+	/**
+	 * Copy constructor, copy buffer
+	 */
 	FORCE_INLINE BitArray(const BitArray & other)
 		: BitArray(other.data, other.count) {}
 	
-	/// Move constructor
+	/**
+	 * Move constructor, move buffer
+	 */
 	FORCE_INLINE BitArray(BitArray && other)
 		: data{other.data}
 		, count{other.count}
@@ -59,12 +71,14 @@ public:
 		other.data = nullptr;
 	}
 
-	/// Copy assignment
+	/**
+	 * Copy assignment, copy buffer
+	 */
 	FORCE_INLINE BitArray & operator=(const BitArray & other)
 	{
 		if (other.size > size)
 		{
-			gMalloc->free(data);
+			if (data) gMalloc->free(data);
 			data = reinterpret_cast<ubyte*>(gMalloc->malloc(other.size));
 		}
 
@@ -75,7 +89,9 @@ public:
 		return *this;
 	}
 
-	/// Move assignment
+	/**
+	 * Move assignment, move buffer
+	 */
 	FORCE_INLINE BitArray & operator=(BitArray && other)
 	{
 		if (data) gMalloc->free(data);
@@ -88,20 +104,26 @@ public:
 		return *this;
 	}
 
-	/// Destructor
+	/**
+	 * Destructor, deallocates buffer
+	 */
 	FORCE_INLINE ~BitArray()
 	{
 		if (data) gMalloc->free(data);
 	}
 
 protected:
-	/// Resize if necessary
+	/**
+	 * Resize buffer if necessary
+	 */
 	FORCE_INLINE bool resizeIfNecessary(uint32 _size)
 	{
 		return _size > size && (data = reinterpret_cast<ubyte*>(gMalloc->realloc(data, (size = _size))));
 	}
 
-	/// Return data buffer with type
+	/**
+	 * Returns data buffer with type T
+	 */
 	template<typename T>
 	FORCE_INLINE T * as() const
 	{
@@ -109,13 +131,17 @@ protected:
 	}
 
 public:
-	/// Get bit count
+	/**
+	 * Get array length in bits
+	 */
 	FORCE_INLINE uint32 getCount() const
 	{
 		return count;
 	}
 
-	/// Get data buffer
+	/**
+	 * Get underlying memory buffer
+	 */
 	template<typename T = ubyte>
 	FORCE_INLINE const T * getData() const
 	{
@@ -127,7 +153,7 @@ public:
 	 * Access single bit value
 	 * 
 	 * @param [in] i bit index
-	 * @return bit value as byte
+	 * @return bit value as ubyte
 	 */
 	FORCE_INLINE ubyte operator[](uint32 i) const
 	{
@@ -140,7 +166,7 @@ public:
 	 * @param [in] begin,end range delimiters
 	 * @return unsigned integer
 	 */
-	FORCE_INLINE uint32 operator()(uint32 begin, uint32 end) const
+	uint32 operator()(uint32 begin, uint32 end) const
 	{
 		uint32 out = 0;
 
@@ -167,6 +193,27 @@ public:
 
 		return out;
 	}
+
+	/**
+	 * Comparison operators
+	 * 
+	 * @param [in] other bit array operand
+	 * @{
+	 */
+	FORCE_INLINE bool operator==(const BitArray & other) const
+	{
+		bool out = true;
+		for (uint32 i = 0; i << 3 < count && out; ++i)
+			out = data[i] == other.data[i];
+		
+		return out;
+	}
+
+	FORCE_INLINE bool operator!=(const BitArray & other) const
+	{
+		return !operator==(other);
+	}
+	/// @}
 
 	/**
 	 * Bitwise xor compound operator
@@ -196,8 +243,6 @@ public:
 	/**
 	 * Left rotate array in-place (circular shift)
 	 * 
-	 * ! Does not handle all cases
-	 * 
 	 * @param [in] offset rotation offset (in bits)
 	 * @return self
 	 */
@@ -220,6 +265,18 @@ public:
 			offset -= s;
 		}
 
+		return *this;
+	}
+
+	/**
+	 * Right rotate array in-place (circular shift)
+	 * 
+	 * @param [in] offset rotation offset (in bits)
+	 * @return self
+	 */
+	BitArray & rotateRight(int32 offset)
+	{
+		// TODO
 		return *this;
 	}
 
@@ -253,14 +310,15 @@ public:
 	/**	
 	 * Shuffle using subsitution maps
 	 * 
-	 * @param [in] dest destination bit stream
+	 * @param [in] inSize,outSize sbox input and output length (in bits)
+	 * @param [in] dest destination bit array
 	 * @param [in] subs subsitution map(s)
-	 * @param [in] n number of sub maps to cycle
-	 * @return dest bitstream
+	 * @param [in] numSubs number of sub maps to cycle (default: 1)
+	 * @return dest bit array
 	 * @{
 	 */
 	template<uint8 inSize, uint8 outSize>
-	FORCE_INLINE BitArray & substitute(BitArray & dest, const uint32 * subs[], uint32 numSubs) const
+	BitArray & substitute(BitArray & dest, const uint32 * subs[], uint32 numSubs) const
 	{
 		ubyte * src = data;
 		ubyte * dst = dest.data; *dst = 0x0;
@@ -289,6 +347,7 @@ public:
 
 		return dest;
 	}
+
 	template<uint32 inSize, uint32 outSize>
 	FORCE_INLINE BitArray & substitute(BitArray & dest, const uint32 * subs) const
 	{
@@ -301,11 +360,48 @@ public:
 	 * 
 	 * @param [in] n number of bits to copy
 	 * @param [in] offset offset in bytes
-	 * @return array slice
+	 * @return new bit array
 	 */
 	FORCE_INLINE BitArray slice(uint32 n, uint32 offset = 0) const
 	{
 		return BitArray(data + offset, n);
+	}
+
+	/**
+	 * Returns a copy of a slice of the array
+	 * supporting bit level offset
+	 * 
+	 * @param [in] begin,end bit range [begin, end)
+	 * @return new bit array
+	 */
+	BitArray slicebit(uint32 begin, uint32 end)
+	{
+		int32 len = end - begin;
+		if (len == 0) return BitArray(0);
+
+		const uint32 beginOffset = begin & 0x7;
+		const uint32 beginLen = 8 - beginOffset;
+
+		BitArray out(len);
+
+		const ubyte * src = data + (begin >> 3);
+		ubyte * dst = out.data;
+
+		do
+		{
+			*dst = *src << beginOffset;
+			*dst |= *++src >> beginLen;
+
+			len -= 8;
+		} while (len > 0 && ++dst);
+
+		if (len != 0)
+		{
+			ubyte mask = 0xff << (-len);
+			*dst &= mask;
+		}
+
+		return out;
 	}
 	
 	/**
@@ -356,7 +452,7 @@ public:
 	 * Merge two bitarrays
 	 * 
 	 * @param [in] other second bitarray
-	 * @return merged array
+	 * @return new merged array
 	 */
 	FORCE_INLINE BitArray merge(const BitArray & other) const
 	{

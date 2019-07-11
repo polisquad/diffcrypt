@@ -1,13 +1,9 @@
 #include "coremin.h"
 #include "math/math.h"
-#include "containers/sorting.h"
-
-const uint32 numRounds = 6;
+#include "containers/bitarray.h"
+#include "misc/log.h"
 
 Malloc * gMalloc = nullptr;
-
-#include <omp.h>
-double start;
 
 const uint32 ip[] = {
 	57, 49, 41, 33, 25, 17, 9, 1, 59, 51, 43, 35, 27, 19, 11, 3,
@@ -658,9 +654,9 @@ const ubyte dL[28][9] = {
 	"\x00\x00\x00\x00\x00\x01\x01\x00"
 };
 
-#include "containers/bitarray.h"
-#include "algorithms/monte_carlo.h"
-
+/**
+ * DES parameters
+ */
 struct DesParams
 {
 	/// Number of rounds
@@ -677,17 +673,13 @@ struct DesParams
 	/// Permutation table
 	const uint32 * perm;
 
-	/// Sbox tables @{
+	/// Sbox tables
 	const uint32 * subs[8];
-	const uint32 * difs[8];
-	/// @}
-};
 
-void printProgress(uint32 i, uint32 tot)
-{
-	if (i % (tot / 32) == 0)
-		printf("."), fflush(stdout);
-}
+	/// Sbox pre-computed differential tables
+	/// (only required for differential cryptanalysis)
+	const uint32 * difs[8];
+};
 
 struct RoundInstance
 {
@@ -847,23 +839,7 @@ public:
 			expand_internal(out, instance.dr.permute(dx, params->xpn), dy);
 		}
 
-		printf("expanded nodes: %llu\n", out.getCount());
-
-	#if 0
-		const uint32 memoryBound = 1u << 20;
-		if (out.getCount() > memoryBound)
-		{
-			printf("pruned nodes: %llu\n", out.getCount() - memoryBound);
-
-			// Sort nodes by h
-			Container::sort(out.begin(), out.end(), [](const RoundNode & a, const RoundNode & b) {
-
-				return Compare<float64>()(b.h, a.h);
-			});
-
-			for (auto it = out.begin(), deleted = it; out.getCount() > memoryBound; ++it, out.remove(deleted), deleted = it);
-		}
-	#endif
+		LOG(INFO, "expanded nodes: %llu", out.getCount());
 
 		return out;
 	}
@@ -997,8 +973,6 @@ public:
 		for (; r < numLeftRounds; ++r)
 			h0 += 2;
 
-		//printf("\n");
-
 		h = h0;
 	}
 
@@ -1112,10 +1086,7 @@ protected:
 			path.computeH();
 			
 			if (path.isComplete())
-			{
-				//printf("path cost: %f {depth = %llu, dy = %08x}\n", path.g, path.rounds.getCount(), dy.getData<uint32>()[0]);
 				cost = Math::min(path.g, cost);
-			}
 			else if (path.getTotalCost() < cost)
 				path.dfSearch(cost);
 		}
@@ -1125,7 +1096,7 @@ public:
 	/// Perform a depth first search on this node
 	FORCE_INLINE void dfSearch(float64 & cost)
 	{
-		printf("current cost: %f {depth: %llu}\n", cost, rounds.getCount() + 1ull);
+		LOG(INFO, "current cost: %f {depth: %llu}", cost, rounds.getCount() + 1ull);
 
 		BitArray dx(48), dy(0);
 		dfSearch_internal(cost, rounds.last()->dr.permute(dx, params->xpn), dy);
@@ -1268,8 +1239,6 @@ void dfSearch(List<Path> && nodes, float64 & cost)
 	}
 }
 
-#include <vector>
-
 int32 main()
 {
 	Memory::createGMalloc();
@@ -1277,7 +1246,7 @@ int32 main()
 	srand(clock());
 
 	DesParams params{
-		numRounds : 7,
+		numRounds : 6,
 		ip : ip,
 		fp : fp,
 		xpn : xpn,
