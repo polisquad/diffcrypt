@@ -71,7 +71,7 @@ public:
 	 * 
 	 * @param [in] ptx plaintext bitarray
 	 */
-	void init(const BitArray & ptx)
+	FORCE_INLINE void init(const BitArray & ptx)
 	{
 		// Set differentials
 		instance.dr = BitArray(32);
@@ -109,7 +109,7 @@ public:
 		// Compute sbox input
 		instance.dr.permute(dx, params->xpn);
 
-		const uint32 numLeftRounds = params->numRounds - round - 2;
+		const uint32 numLeftRounds = params->numRounds - round - 1;
 		if (numLeftRounds)
 		{
 			for (uint32 s = 0; s < 8; ++s)
@@ -185,7 +185,7 @@ public:
 		List<RoundNode> out;
 		
 		// Don't expand last round
-		if (round < params->numRounds - 2)
+		if (round < params->numRounds - 1)
 		{
 			// Compute sbox input
 			BitArray dx(48), dy(0);
@@ -271,7 +271,7 @@ public:
 	/// Returns true if path is a complete path
 	FORCE_INLINE bool isComplete() const
 	{
-		return rounds.getCount() >= params->numRounds - 2;
+		return rounds.getCount() >= params->numRounds - 1;
 	}
 
 	/// Init path with des input (before initial permutation)
@@ -283,8 +283,8 @@ public:
 			dl : BitArray(32)
 		});
 
-		ptx.permute(inputRound.dr, params->ip);
-		ptx.permute(inputRound.dl, params->ip + 32);
+		ptx.permute(inputRound.dl, params->ip);
+		ptx.permute(inputRound.dr, params->ip + 32);
 
 		// Init cost
 		g = 0.;
@@ -298,10 +298,11 @@ public:
 		float64 h0 = 0.;
 
 		// Round differential inputs
-		BitArray dx(48), dr = rounds.last()->dr, dl = rounds.last()->dl;
-		rounds.last()->dr.permute(dx, params->xpn);
+		auto & lastRound = *rounds.last();
+		BitArray dx(48), dr = lastRound.dr, dl = lastRound.dl;
+		lastRound.dr.permute(dx, params->xpn);
 
-		const uint32 numLeftRounds = params->numRounds - rounds.getCount() - 2;
+		const uint32 numLeftRounds = params->numRounds - rounds.getCount() - 1;
 		const uint32 lookAhead = 1;
 
 		uint32 r = 0; for (; r < Math::min(lookAhead, numLeftRounds); ++r)
@@ -411,7 +412,7 @@ public:
 	}
 
 protected:
-	void dfSearch_internal(float64 & cost, const BitArray & dx, const BitArray & dy, float64 c0 = 0., uint32 s = 0)
+	void dfSearch_internal(Path & optimalPath, float64 & cost, const BitArray & dx, const BitArray & dy, float64 c0 = 0., uint32 s = 0)
 	{
 		if (s < 8)
 		{
@@ -425,24 +426,25 @@ protected:
 					if (d > 0)
 					{
 						const ubyte _y = y << 4;
-						dfSearch_internal(cost, dx, dy.merge(BitArray(&_y, 4)), c0 - log2(d / 64.), s + 1);
+						dfSearch_internal(optimalPath, cost, dx, dy.merge(BitArray(&_y, 4)), c0 - log2(d / 64.), s + 1);
 					}
 				}
 			else
-				dfSearch_internal(cost, dx, dy.merge(BitArray((const ubyte[]){0x0}, 4)), c0, s + 1);
+				dfSearch_internal(optimalPath, cost, dx, dy.merge(BitArray((const ubyte[]){0x0}, 4)), c0, s + 1);
 		}
 		else
 		{
 			Path path(*this);
 
 			// Update current round
-			path.rounds.last()->dy = dy;
+			auto & lastRound = *path.rounds.last();
+			lastRound.dy = dy;
 
 			// Compute next round
 			BitArray u(32);
 			path.rounds.push(RoundInstance{
-				dr : dy.permute(u, params->perm) ^= path.rounds.last()->dl,
-				dl : path.rounds.last()->dr
+				dr : dy.permute(u, params->perm) ^= lastRound.dl,
+				dl : lastRound.dr
 			});
 
 			// Update path probability
@@ -450,20 +452,34 @@ protected:
 			path.computeH();
 			
 			if (path.isComplete())
-				cost = Math::min(path.g, cost);
+			{
+				if (path.g < cost)
+				{
+					LOG(INFO, "optimal path cost: %f", path.g);
+
+					cost = path.g;
+					optimalPath = path;
+				}
+			}
 			else if (path.getTotalCost() < cost)
-				path.dfSearch(cost);
+				path.dfSearch(optimalPath, cost);
 		}
 	}
 
 public:
-	/// Perform a depth first search on this node
-	FORCE_INLINE void dfSearch(float64 & cost)
+	/**
+	 * Performs a depth first search starting
+	 * from this node
+	 * 
+	 * @param [out] optimalPath found path with minimum cost
+	 * @param [out] cost minimum cost
+	 */
+	FORCE_INLINE void dfSearch(Path & optimalPath, float64 & cost)
 	{
 		LOG(INFO, "current cost: %f {depth: %llu}", cost, rounds.getCount() + 1ull);
 
 		BitArray dx(48), dy(0);
-		dfSearch_internal(cost, rounds.last()->dr.permute(dx, params->xpn), dy);
+		dfSearch_internal(optimalPath, cost, rounds.last()->dr.permute(dx, params->xpn), dy);
 	}
 
 protected:
@@ -511,7 +527,7 @@ public:
 		dr.permute(dx, params->xpn);
 
 		// Number of rounds to simulate
-		const uint32 numLeftRounds = params->numRounds - rounds.getCount() - 2;
+		const uint32 numLeftRounds = params->numRounds - rounds.getCount() - 1;
 
 		float64 g0 = 0.;
 		for (uint32 r = 0; r < numLeftRounds; ++r)

@@ -708,10 +708,17 @@ public:
 	}
 
 	/// Copy assignment (same allocator)
-	/* FORCE_INLINE List & operator=(const List & other)
+	FORCE_INLINE List & operator=(const List & other)
 	{
+		// Empty this first
+		empty();
 
-	} */
+		// Copy list
+		replicate(other.head);
+		count = other.count;
+
+		return *this;
+	}
 
 	/// Move assignment
 	FORCE_INLINE List & operator=(List && other)
