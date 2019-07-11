@@ -655,7 +655,7 @@ int32 main()
 	Path optimalPath(&params);
 
 	srand(clock());
-	uint64 v = 0x800000000000000ull;
+	uint64 v = 0x200000000000000ull;
 
 	for (;v != 0; v >>= 1)
 	{
