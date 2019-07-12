@@ -1,12 +1,16 @@
 #pragma once
 
 #include "coremin.h"
+#include "containers/bitarray.h"
 
 /**
  * DES parameters
  */
-struct DesParams
+struct DES
 {
+	/// Default DES implementation
+	static const DES std;
+
 	/// Number of rounds
 	uint32 numRounds;
 
@@ -27,6 +31,32 @@ struct DesParams
 	/// Sbox pre-computed differential tables
 	/// (only required for differential cryptanalysis)
 	const uint32 * difs[8];
+
+	/**
+	 * DES key schedule
+	 * 
+	 * @param [out] roundKeys scheduled round keys
+	 * @param [in] key actual key
+	 */
+	void keySchedule(BitArray * keys, const BitArray & key) const;
+
+	/**
+	 * DES block encryption
+	 * 
+	 * @param [in] ptx plaintext bit array
+	 * @param [in] roundKeys pre-computed round keys
+	 * @return output ctx bit array
+	 */
+	BitArray encryptBlock(const BitArray & ptx, const BitArray * roundKeys) const;
+
+	/**
+	 * DES block decryption
+	 * 
+	 * @param [in] ctx ciphertext bit array
+	 * @param [in] roundKeys pre-computed round keys
+	 * @return output ptx bit array
+	 */
+	BitArray decryptBlock(const BitArray & ctx, const BitArray * roundKeys) const;
 };
 
 /**
@@ -63,7 +93,7 @@ struct RoundNode
 	uint32 round;
 
 	/// Des parameters
-	DesParams * params;
+	DES * params;
 
 public:
 	/**
@@ -194,14 +224,12 @@ public:
 			expand_internal(out, instance.dr.permute(dx, params->xpn), dy);
 		}
 
-		LOG(INFO, "expanded nodes: %llu", out.getCount());
-
 		return out;
 	}
 };
 
 /**
- * A path represent a differential
+ * A path represents a differential
  * path in DES. A list of round
  * instances is mantained. It is
  * possible to begin a depth first
@@ -222,11 +250,11 @@ protected:
 	float64 h;
 
 	/// Des parameters
-	const DesParams * params;
+	const DES * params;
 
 public:
 	/// Default constructor
-	FORCE_INLINE Path(const DesParams * _params)
+	FORCE_INLINE Path(const DES * _params)
 		: rounds{}
 		, g{0.f}
 		, h{0.f}
@@ -275,125 +303,22 @@ public:
 	}
 
 	/// Init path with des input (before initial permutation)
-	void init(const BitArray & ptx)
-	{
-		// Create first round from ptx
-		RoundInstance & inputRound = rounds.push(RoundInstance{
-			dr : BitArray(32),
-			dl : BitArray(32)
-		});
-
-		ptx.permute(inputRound.dl, params->ip);
-		ptx.permute(inputRound.dr, params->ip + 32);
-
-		// Init cost
-		g = 0.;
-		computeH();
-	}
+	void init(const BitArray & ptx);
 
 	/// Compute node heuristics
-	void computeH()
-	{
-		// Out probability
-		float64 h0 = 0.;
-
-		// Round differential inputs
-		auto & lastRound = *rounds.last();
-		BitArray dx(48), dr = lastRound.dr, dl = lastRound.dl;
-		lastRound.dr.permute(dx, params->xpn);
-
-		const uint32 numLeftRounds = params->numRounds - rounds.getCount() - 1;
-		const uint32 lookAhead = 1;
-
-		uint32 r = 0; for (; r < Math::min(lookAhead, numLeftRounds); ++r)
-		{
-			BitArray dy(0), du(32);
-
-			// For each sbox
-			for (uint32 s = 0; s < 8; ++s)
-			{
-				const uint32 * row = params->difs[s] + (dx(s * 6, (s + 1) * 6) << 4);
-
-				// Find max probability
-				ubyte y = 0;
-				uint32 max = row[0];
-				for (uint32 j = 1; j < 16 && max < 64; ++j)
-					if (row[j] > max)
-						max = row[j], y = j << 4;
-					
-				// Append to dy
-				dy.append(BitArray(&y, 4));
-
-				// Update best probability
-				h0 -= log2(max / 64.);
-			}
-
-			// Compute next round differentials
-			du = dl;
-			dl = dr;
-			dy.permute(dr, params->perm) ^= du;
-			dr.permute(dx, params->xpn);
-		}
-
-		for (; r < numLeftRounds; ++r)
-			h0 += 2;
-
-		h = h0;
-	}
+	void computeH();
 
 protected:
 	/**
 	 * Expand node internal
+	 * @see expand
 	 * 
 	 * @param [out] out out list of expanded nodes
 	 * @param [in] dx,dy input and output of sbox
 	 * @param [in] params des parameters
 	 * @param [in] s sbox index
 	 */
-	void expand_internal(List<Path> & out, const BitArray & dx, const BitArray & dy, float64 p0 = 1.f, uint32 s = 0) const
-	{
-		if (s < 8)
-		{
-			uint32 x = dx(s * 6, (s + 1) * 6);
-			if (x != 0)
-				// For each possible output
-				for (ubyte y = 0; y < 16; ++y)
-				{
-					const uint32 d = params->difs[s][(x << 4) + y];
-
-					if (d > 0)
-					{
-						const float64 p = d / 64.f;
-						const ubyte _y = y << 4;
-						expand_internal(out, dx, dy.merge(BitArray(&_y, 4)), p0 * p, s + 1);
-					}
-				}
-			else
-				expand_internal(out, dx, dy.merge(BitArray((const ubyte[]){0x0}, 4)), p0, s + 1);
-		}
-		else
-		{
-			// Copy path
-			Path path(*this);
-
-			// Update current round
-			path.rounds.last()->dy = dy;
-
-			// Compute next round
-			BitArray u(32);
-			path.rounds.push(RoundInstance{
-				dr : dy.permute(u, params->perm) ^= path.rounds.last()->dl,
-				dl : path.rounds.last()->dr
-			});
-
-			// Update path probability
-			path.g += -log2(p0);
-			path.computeH();
-
-			// Move into output list
-			out.push(move(path));
-		}
-	}
+	void expand_internal(List<Path> & out, const BitArray & dx, const BitArray & dy, float64 p0 = 1.f, uint32 s = 0) const;
 
 public:
 	/// Expand node
@@ -412,59 +337,11 @@ public:
 	}
 
 protected:
-	void dfSearch_internal(Path & optimalPath, float64 & cost, const BitArray & dx, const BitArray & dy, float64 c0 = 0., uint32 s = 0)
-	{
-		if (s < 8)
-		{
-			uint32 x = dx(s * 6, (s + 1) * 6);
-			if (x != 0)
-				// For each possible output
-				for (ubyte y = 0; y < 16; ++y)
-				{
-					const uint32 d = params->difs[s][(x << 4) + y];
-
-					if (d > 0)
-					{
-						const ubyte _y = y << 4;
-						dfSearch_internal(optimalPath, cost, dx, dy.merge(BitArray(&_y, 4)), c0 - log2(d / 64.), s + 1);
-					}
-				}
-			else
-				dfSearch_internal(optimalPath, cost, dx, dy.merge(BitArray((const ubyte[]){0x0}, 4)), c0, s + 1);
-		}
-		else
-		{
-			Path path(*this);
-
-			// Update current round
-			auto & lastRound = *path.rounds.last();
-			lastRound.dy = dy;
-
-			// Compute next round
-			BitArray u(32);
-			path.rounds.push(RoundInstance{
-				dr : dy.permute(u, params->perm) ^= lastRound.dl,
-				dl : lastRound.dr
-			});
-
-			// Update path probability
-			path.g += c0;
-			path.computeH();
-			
-			if (path.isComplete())
-			{
-				if (path.g < cost)
-				{
-					LOG(INFO, "optimal path cost: %f", path.g);
-
-					cost = path.g;
-					optimalPath = path;
-				}
-			}
-			else if (path.getTotalCost() < cost)
-				path.dfSearch(optimalPath, cost);
-		}
-	}
+	/**
+	 * Internal DFS search
+	 * @see dfSearch
+	 */
+	void dfSearch_internal(Path & optimalPath, float64 & cost, const BitArray & dx, const BitArray & dy, float64 c0 = 0., uint32 s = 0) const;
 
 public:
 	/**
@@ -474,10 +351,8 @@ public:
 	 * @param [out] optimalPath found path with minimum cost
 	 * @param [out] cost minimum cost
 	 */
-	FORCE_INLINE void dfSearch(Path & optimalPath, float64 & cost)
+	FORCE_INLINE void dfSearch(Path & optimalPath, float64 & cost) const
 	{
-		LOG(INFO, "current cost: %f {depth: %llu}", cost, rounds.getCount() + 1ull);
-
 		BitArray dx(48), dy(0);
 		dfSearch_internal(optimalPath, cost, rounds.last()->dr.permute(dx, params->xpn), dy);
 	}
@@ -485,34 +360,13 @@ public:
 protected:
 	/**
 	 * Internal sample code
+	 * @see sample
 	 * 
 	 * @param [in] dx sbox differential input
 	 * @param [in] p0 out differential probability
 	 * @param [in] s simulated sbox index
 	 */
-	float64 sample_internal(BitArray & dy, const BitArray & dx, float64 p0 = 0., uint32 s = 0)
-	{
-		if (s < 8)
-		{
-			uint32 x = dx(s * 6, (s + 1) * 6);
-			if (x != 0)
-			{
-				uint32 y = 0, d = 0;
-				while (d == 0) // ! Assuming there's no null row
-				{
-					y = rand() & 0xf;
-					d = params->difs[s][(x << 4) + y];
-				}
-
-				uint32 _y = y << 4;
-				return sample_internal(dy.append(BitArray(&_y, 4)), dx, p0 - log2(d / 64.), s + 1);
-			}
-			else
-				return sample_internal(dy.append(BitArray((const ubyte[]){0x0}, 4)), dx, p0, s + 1);
-		}
-
-		return p0;
-	}
+	float64 sample_internal(BitArray & dy, const BitArray & dx, float64 p0 = 0., uint32 s = 0) const;
 
 public:
 	/**
@@ -520,29 +374,5 @@ public:
 	 * 
 	 * @return simualated path cost
 	 */
-	float64 sample()
-	{
-		// Sbox input
-		BitArray dx(48), dr = rounds.last()->dr, dl = rounds.last()->dl;
-		dr.permute(dx, params->xpn);
-
-		// Number of rounds to simulate
-		const uint32 numLeftRounds = params->numRounds - rounds.getCount() - 1;
-
-		float64 g0 = 0.;
-		for (uint32 r = 0; r < numLeftRounds; ++r)
-		{
-			// Sample sboxes output
-			BitArray dy(0);
-			g0 += sample_internal(dy, dx);
-
-			// Compute next round
-			BitArray t = dl;
-			dl = dr;
-			dy.permute(dr, params->perm) ^= t;
-			dr.permute(dx, params->xpn);
-		}
-
-		return g + g0;
-	}
+	float64 sample() const;
 };

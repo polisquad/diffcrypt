@@ -5,37 +5,12 @@
 - Guglielmo Manneschi @ [nondecidibile](https://github.com/nondecidibile)
 - Andrea Mecchia @ [sneppy](https://github.com/sneppy)
 
-## How to use this code
+## Index
 
-This code contains a custom bit vector class with methods that implement transformation components (e.g. permutation, expansion, substitution, addition, rotation) as well as search algorithms for DES differential cryptanalysis.
+- [Using the BitArray class](#Using-the-BitArray-class)
+- [Using DES](#Using-DES)
 
-A compliant DES encryption can be easily obtained using the `BitArray` class methods:
-
-```cpp
-BitArray input("plaintxt", 64), output(64);
-BitArray l, r;
-BitArray u(32), v(32);
-BitArray key("mysecret", 48), e(48);
-BitArray keys[16];
-
-keySchedule(keys, key);
-
-input.permute(l, ip);
-input.permute(r, ip + 32);
-
-for (uint32 i = 0; i < 15; ++i)
-{
-	// DES round
-	(r.permute(e, xpn) ^= keys[i]).substitute<6, 4>(u, subs, 8).permute(v, perm) ^= l;
-	l = r, r = v;
-}
-
-// Last round
-l ^= (r.permute(e, xpn) ^= k[15]).substitute<6, 4>(u, _subs, 8).permute(v, perm);
-output = l.merge(r);
-```
-
-## Using BitArray
+## Using the BitArray class
 
 To create an uninitialized array of length k bits:
 
@@ -160,4 +135,31 @@ Many of this methods return a reference to the bit array, hence it is possible t
 
 ```cpp
 (dr.permute(e, xpn) ^= key).substitute<6, 4>(u, subs, 8).permute(v, perm);
+```
+
+## Using DES
+
+The `DES` class provides a quick way to encrypt/decrypt a DES block:
+
+```cpp
+// Generate round keys
+BitArray roundKeys[16];
+DES::std.keySchedule(roundKeys, BitArray("_mykey_!", 64));
+
+// Encrypt plaintext block
+BitArray ctx = DES::std.encryptBlock(BitArray("mysecret", 64), roundKeys);
+
+// Decrypt ciptertext block
+BitArray ptx = DES::std.decryptBlock(ctx, roundKeys);
+```
+
+`DES::std` uses standard DES tables. The DES structure can be customized by providing different tables for permutations and sboxes, as well as different number of rounds:
+
+```cpp
+// Lightweight DES with only 8 rounds
+DES des{Des::std};
+des.numRounds = 8;
+
+des.keySchedule(roundKeys, BitArray("_mykey_!", 64));
+// ...
 ```

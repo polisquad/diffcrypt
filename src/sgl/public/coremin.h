@@ -19,6 +19,9 @@
 // Templates
 #include "templates/templates.h"
 
+// Math
+#include "math/math.h"
+
 // Containers
 #include "containers/containers.h"
 

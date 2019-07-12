@@ -5,6 +5,7 @@
 #include "hal/malloc_ansi.h"
 #include "templates/reference.h"
 #include "templates/is_trivially_copyable.h"
+#include "templates/const_ref.h"
 
 /**
  * @struct SingleLink containers/list.h
@@ -506,8 +507,8 @@ class ListIterator
 public:
 
 	/// Link types @{
-	using Link		= ::DoubleLink<T>;
-	using LinkRef	= ::DoubleLinkRef<T>;
+	using Link		= ::DoubleLink<typename RemoveConst<T>::Type>;
+	using LinkRef	= ::DoubleLinkRef<typename RemoveConst<T>::Type>;
 	/// @}
 
 protected:
